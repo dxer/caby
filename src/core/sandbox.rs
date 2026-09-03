@@ -43,9 +43,9 @@ pub fn authorize(skill: &Skill, action: &str) -> Verdict {
     }
 
     let whitelist = &skill.meta.allowed_tools;
-    let allowed = whitelist.iter().any(|entry| {
-        entry == action || entry == &tool || entry == &format!("{server}:{tool}")
-    });
+    let allowed = whitelist
+        .iter()
+        .any(|entry| entry == action || entry == &tool || entry == &format!("{server}:{tool}"));
 
     if allowed {
         Verdict::Allow { server, tool }
@@ -131,7 +131,13 @@ mod tests {
     #[test]
     fn malformed_action_denied() {
         let s = skill_with(vec!["github:get_pull_request"]);
-        assert!(matches!(authorize(&s, "no-colon-here"), Verdict::Deny { .. }));
-        assert!(matches!(authorize(&s, ":leading-colon"), Verdict::Deny { .. }));
+        assert!(matches!(
+            authorize(&s, "no-colon-here"),
+            Verdict::Deny { .. }
+        ));
+        assert!(matches!(
+            authorize(&s, ":leading-colon"),
+            Verdict::Deny { .. }
+        ));
     }
 }

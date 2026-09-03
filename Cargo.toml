@@ -5,6 +5,9 @@ edition = "2021"
 description = "CabyMCP - Keep your agent calm & context lean. A lightweight meta-gateway and dynamic dispatcher for the MCP ecosystem."
 license = "MIT"
 repository = "https://github.com/caby-dev/caby"
+readme = "README.md"
+keywords = ["mcp", "model-context-protocol", "gateway", "proxy", "llm", "cli"]
+categories = ["command-line-utilities", "development-tools", "web-programming"]
 
 [[bin]]
 name = "caby"

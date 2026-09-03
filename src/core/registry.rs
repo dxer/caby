@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{RwLock, Notify};
+use tokio::sync::{Notify, RwLock};
 
 use crate::config::Config;
 use crate::core::mcpserver::{McpServer, RegisteredTool, ServerState};
@@ -30,7 +30,11 @@ impl Registry {
     pub async fn spawn_all(&self, cfg: &Config) -> Vec<String> {
         let mut spawned = Vec::new();
         for def in cfg.enabled_servers() {
-            let server = McpServer::new(def.name.clone(), def.clone(), Arc::new(cfg.settings.clone()));
+            let server = McpServer::new(
+                def.name.clone(),
+                def.clone(),
+                Arc::new(cfg.settings.clone()),
+            );
             spawned.push(def.name.clone());
             {
                 let mut map = self.servers.write().await;

@@ -1,9 +1,9 @@
 //! `caby remove <name>` — detach a downstream server.
 
-use anyhow::bail;
 use crate::cli::RemoveArgs;
 use crate::config::{load_config, resolve_config_path, save_config};
 use crate::util::display_path;
+use anyhow::bail;
 
 pub fn run(args: &RemoveArgs) -> anyhow::Result<()> {
     let path = resolve_config_path(args.config.as_deref());
@@ -14,6 +14,10 @@ pub fn run(args: &RemoveArgs) -> anyhow::Result<()> {
         bail!("server '{}' is not configured", args.name);
     }
     save_config(&path, &cfg)?;
-    println!("removed server '{}' from {}", args.name, display_path(&path));
+    println!(
+        "removed server '{}' from {}",
+        args.name,
+        display_path(&path)
+    );
     Ok(())
 }

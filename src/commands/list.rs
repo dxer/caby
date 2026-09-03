@@ -8,11 +8,10 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command as ProcCommand, Stdio};
 use std::time::Duration;
 
-
 use serde_json::{json, Value};
 
 use crate::cli::ListArgs;
-use crate::config::{ServerDef, load_config, resolve_config_path};
+use crate::config::{load_config, resolve_config_path, ServerDef};
 use crate::core::minifier::minify_schema;
 use crate::core::skillstore::SkillStore;
 use crate::util::{display_path, log_info};
@@ -48,13 +47,16 @@ pub fn run(args: &ListArgs) -> anyhow::Result<()> {
         }
     } else {
         for def in cfg.enabled_servers() {
-            probes.insert(def.name.clone(), Probe {
-                tool_count: 0,
-                chars_before: 0,
-                chars_after: 0,
-                fields_removed: 0,
-                error: None,
-            });
+            probes.insert(
+                def.name.clone(),
+                Probe {
+                    tool_count: 0,
+                    chars_before: 0,
+                    chars_after: 0,
+                    fields_removed: 0,
+                    error: None,
+                },
+            );
         }
     }
 
@@ -71,11 +73,7 @@ pub fn run(args: &ListArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_json(
-    cfg: &crate::config::Config,
-    probes: &BTreeMap<String, Probe>,
-    store: &SkillStore,
-) {
+fn print_json(cfg: &crate::config::Config, probes: &BTreeMap<String, Probe>, store: &SkillStore) {
     let servers: Vec<Value> = cfg
         .enabled_servers()
         .iter()
@@ -140,7 +138,12 @@ fn print_tree(
     let enabled: Vec<&ServerDef> = cfg.enabled_servers();
     let healthy = enabled
         .iter()
-        .filter(|s| probes.get(&s.name).map(|p| p.error.is_none()).unwrap_or(false))
+        .filter(|s| {
+            probes
+                .get(&s.name)
+                .map(|p| p.error.is_none())
+                .unwrap_or(false)
+        })
         .count();
     if offline {
         println!("Servers ({n} configured, --offline)", n = enabled.len());
@@ -248,10 +251,7 @@ fn probe_server(def: &ServerDef) -> Probe {
     probe
 }
 
-fn probe_session(
-    child: &mut Child,
-    stdout: std::process::ChildStdout,
-) -> Probe {
+fn probe_session(child: &mut Child, stdout: std::process::ChildStdout) -> Probe {
     // writer thread handling both requests
     let stdin = child.stdin.take();
     let reqs: Vec<Vec<u8>> = [
@@ -323,7 +323,10 @@ fn probe_session(
                 if msg.pointer("/error").is_none() {
                     init_ok = true;
                 } else {
-                    let e = msg.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("initialize error");
+                    let e = msg
+                        .pointer("/error/message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("initialize error");
                     return Probe {
                         tool_count: 0,
                         chars_before: 0,
@@ -335,7 +338,10 @@ fn probe_session(
             }
             Ok((2, msg)) => {
                 if let Some(err) = msg.pointer("/error") {
-                    let e = err.get("message").and_then(|m| m.as_str()).unwrap_or("tools/list error");
+                    let e = err
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("tools/list error");
                     return Probe {
                         tool_count: 0,
                         chars_before: 0,

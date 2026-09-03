@@ -9,12 +9,11 @@
 
 use std::io::{BufRead, Write};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 fn main() {
     let profile = std::env::args().nth(1).unwrap_or_else(|| "github".into());
-    let log_path = std::env::var("MOCK_LOG").ok()
-        .map(std::path::PathBuf::from);
+    let log_path = std::env::var("MOCK_LOG").ok().map(std::path::PathBuf::from);
     let delay_ms: u64 = std::env::var("MOCK_DELAY_MS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -66,10 +65,16 @@ fn main() {
                     .and_then(|n| n.as_str())
                     .unwrap_or("")
                     .to_string();
-                let args = msg.pointer("/params/arguments").cloned().unwrap_or(json!({}));
+                let args = msg
+                    .pointer("/params/arguments")
+                    .cloned()
+                    .unwrap_or(json!({}));
 
                 if let Some(lp) = &log_path {
-                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(lp)
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(lp)
                     {
                         let _ = writeln!(f, "CALL {name} {args}");
                     }
@@ -187,83 +192,119 @@ fn github_tools() -> Vec<Value> {
                 }
             }),
         ),
-        verbose_tool("list_issues", "List issues in a repository.", json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object",
-            "properties": {
-                "repo": {"type": "string", "description": "repo slug"},
-                "state": {"type": "string", "enum": ["open", "closed", "all"], "default": "open", "description": "issue state"}
-            }
-        })),
-        verbose_tool("search_code", "Search code in a repository.", json!({
-            "type": "object",
-            "required": ["query"],
-            "properties": {
-                "query": {"type": "string", "description": "search query"},
-                "repo": {"type": "string", "description": "optional repo filter"}
-            }
-        })),
-        verbose_tool("create_issue", "Create a new issue.", json!({
-            "type": "object",
-            "required": ["repo", "title"],
-            "properties": {
-                "repo": {"type": "string", "description": "repo slug"},
-                "title": {"type": "string", "description": "issue title"},
-                "body": {"type": "string", "description": "issue body"}
-            }
-        })),
-        verbose_tool("list_commits", "List commits of a branch.", json!({
-            "type": "object",
-            "required": ["repo"],
-            "properties": {
-                "repo": {"type": "string", "description": "repo slug"},
-                "branch": {"type": "string", "description": "branch name"}
-            }
-        })),
-        verbose_tool("merge_pull_request", "Merge a pull request.", json!({
-            "type": "object",
-            "required": ["pull_number", "repo"],
-            "properties": {
-                "pull_number": {"type": "integer", "description": "PR number"},
-                "repo": {"type": "string", "description": "repo slug"},
-                "method": {"type": "string", "enum": ["merge", "squash", "rebase"], "description": "merge method"}
-            }
-        })),
+        verbose_tool(
+            "list_issues",
+            "List issues in a repository.",
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "repo slug"},
+                    "state": {"type": "string", "enum": ["open", "closed", "all"], "default": "open", "description": "issue state"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "search_code",
+            "Search code in a repository.",
+            json!({
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string", "description": "search query"},
+                    "repo": {"type": "string", "description": "optional repo filter"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "create_issue",
+            "Create a new issue.",
+            json!({
+                "type": "object",
+                "required": ["repo", "title"],
+                "properties": {
+                    "repo": {"type": "string", "description": "repo slug"},
+                    "title": {"type": "string", "description": "issue title"},
+                    "body": {"type": "string", "description": "issue body"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "list_commits",
+            "List commits of a branch.",
+            json!({
+                "type": "object",
+                "required": ["repo"],
+                "properties": {
+                    "repo": {"type": "string", "description": "repo slug"},
+                    "branch": {"type": "string", "description": "branch name"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "merge_pull_request",
+            "Merge a pull request.",
+            json!({
+                "type": "object",
+                "required": ["pull_number", "repo"],
+                "properties": {
+                    "pull_number": {"type": "integer", "description": "PR number"},
+                    "repo": {"type": "string", "description": "repo slug"},
+                    "method": {"type": "string", "enum": ["merge", "squash", "rebase"], "description": "merge method"}
+                }
+            }),
+        ),
     ]
 }
 
 /// Postgres-style profile: 4 tools.
 fn postgres_tools() -> Vec<Value> {
     vec![
-        verbose_tool("query", "Execute a read-only SQL query", json!({
-            "type": "object",
-            "required": ["sql"],
-            "properties": {
-                "sql": {"type": "string", "description": "SQL statement (read-only)"},
-                "params": {"type": "array", "items": {"type": "string"}, "description": "bind params"}
-            }
-        })),
-        verbose_tool("execute", "Execute a write SQL statement", json!({
-            "type": "object",
-            "required": ["sql"],
-            "properties": {
-                "sql": {"type": "string", "description": "SQL statement"}
-            }
-        })),
-        verbose_tool("list_tables", "List tables in the database", json!({
-            "type": "object",
-            "properties": {
-                "schema": {"type": "string", "default": "public", "description": "schema name"}
-            }
-        })),
-        verbose_tool("describe_table", "Describe a table's columns", json!({
-            "type": "object",
-            "required": ["table"],
-            "properties": {
-                "table": {"type": "string", "description": "table name"},
-                "schema": {"type": "string", "description": "schema name"}
-            }
-        })),
+        verbose_tool(
+            "query",
+            "Execute a read-only SQL query",
+            json!({
+                "type": "object",
+                "required": ["sql"],
+                "properties": {
+                    "sql": {"type": "string", "description": "SQL statement (read-only)"},
+                    "params": {"type": "array", "items": {"type": "string"}, "description": "bind params"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "execute",
+            "Execute a write SQL statement",
+            json!({
+                "type": "object",
+                "required": ["sql"],
+                "properties": {
+                    "sql": {"type": "string", "description": "SQL statement"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "list_tables",
+            "List tables in the database",
+            json!({
+                "type": "object",
+                "properties": {
+                    "schema": {"type": "string", "default": "public", "description": "schema name"}
+                }
+            }),
+        ),
+        verbose_tool(
+            "describe_table",
+            "Describe a table's columns",
+            json!({
+                "type": "object",
+                "required": ["table"],
+                "properties": {
+                    "table": {"type": "string", "description": "table name"},
+                    "schema": {"type": "string", "description": "schema name"}
+                }
+            }),
+        ),
     ]
 }
 

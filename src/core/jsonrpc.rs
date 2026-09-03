@@ -197,8 +197,7 @@ impl FrameReader {
             // LSP-style header framing?
             if self.buf.starts_with(b"Content-Length:") {
                 if let Some(header_end) = find_bytes(&self.buf, b"\r\n\r\n") {
-                    let header =
-                        String::from_utf8_lossy(&self.buf[..header_end]).to_string();
+                    let header = String::from_utf8_lossy(&self.buf[..header_end]).to_string();
                     let len = parse_content_length(&header).ok_or_else(|| {
                         anyhow::anyhow!("malformed Content-Length header in frame")
                     })?;
@@ -234,9 +233,7 @@ impl FrameReader {
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 fn parse_content_length(header: &str) -> Option<usize> {
@@ -292,7 +289,11 @@ mod tests {
     #[test]
     fn split_content_length_framing() {
         let body = br#"{"jsonrpc":"2.0","id":7,"method":"tools/call"}"#;
-        let framed = format!("Content-Length: {}\r\n\r\n{}", body.len(), String::from_utf8_lossy(body));
+        let framed = format!(
+            "Content-Length: {}\r\n\r\n{}",
+            body.len(),
+            String::from_utf8_lossy(body)
+        );
         let mut fr = FrameReader::new();
         let mut got: Option<Vec<u8>> = None;
         for chunk in framed.as_bytes().chunks(4) {

@@ -115,11 +115,12 @@ pub fn parse_front_matter(yaml_text: &str) -> Option<SkillMeta> {
             }
             "description" => {
                 let value = value.trim();
-                let mut out = if value.is_empty() || value.starts_with('|') || value.starts_with('>') {
-                    String::new()
-                } else {
-                    parse_scalar(value).unwrap_or_default()
-                };
+                let mut out =
+                    if value.is_empty() || value.starts_with('|') || value.starts_with('>') {
+                        String::new()
+                    } else {
+                        parse_scalar(value).unwrap_or_default()
+                    };
                 // multi-line continuation: indented lines that follow
                 while idx + 1 < lines.len() {
                     let next = lines[idx + 1];
@@ -244,7 +245,11 @@ fn parse_scalar(s: &str) -> Option<String> {
         return Some(out);
     }
     if s.starts_with('\'') {
-        return Some(s.trim_start_matches('\'').trim_end_matches('\'').to_string());
+        return Some(
+            s.trim_start_matches('\'')
+                .trim_end_matches('\'')
+                .to_string(),
+        );
     }
     Some(s.to_string())
 }
@@ -332,7 +337,11 @@ version: "1.2"
         let (meta, body) = split_front_matter(src).expect("front matter");
         assert_eq!(meta.name, "DB Analytics");
         let desc = meta.description.replace('\n', " ");
-        assert!(desc.contains("slow queries") && desc.contains("index health"), "{}", desc);
+        assert!(
+            desc.contains("slow queries") && desc.contains("index health"),
+            "{}",
+            desc
+        );
         assert!(meta.fallback);
         assert_eq!(meta.version.as_deref(), Some("1.2"));
         assert!(body.is_empty());

@@ -7,13 +7,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command as ProcCommand, Stdio};
 use std::time::Duration;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde_json::Value;
 
 use crate::cli::AddArgs;
-use crate::config::{
-    ServerDef, load_config, parse_env_flag, resolve_config_path, save_config,
-};
+use crate::config::{load_config, parse_env_flag, resolve_config_path, save_config, ServerDef};
 use crate::core::jsonrpc::FrameReader;
 use crate::util::{display_path, log_info};
 

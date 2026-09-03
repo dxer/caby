@@ -12,10 +12,23 @@ pub fn config_path(create_default: bool) -> anyhow::Result<PathBuf> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     let mut candidates: Vec<PathBuf> = Vec::new();
     for editor in ["Code", "Code - OSS", "VSCodium", "cursor"] {
-        candidates.push(home.join(".config").join(editor).join("User").join("globalStorage").join("saoudrizwan.claude-dev").join("settings").join("cline_mcp_settings.json"));
+        candidates.push(
+            home.join(".config")
+                .join(editor)
+                .join("User")
+                .join("globalStorage")
+                .join("saoudrizwan.claude-dev")
+                .join("settings")
+                .join("cline_mcp_settings.json"),
+        );
     }
     // older style
-    candidates.push(home.join(".config").join("claude-dev").join("settings").join("cline_mcp_settings.json"));
+    candidates.push(
+        home.join(".config")
+            .join("claude-dev")
+            .join("settings")
+            .join("cline_mcp_settings.json"),
+    );
 
     for c in &candidates {
         if c.exists() {

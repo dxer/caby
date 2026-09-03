@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{mpsc, Notify};
 
 use crate::cli::ServeArgs;
 use crate::config::{load_config, resolve_config_path};
@@ -14,7 +14,7 @@ use crate::core::gateway::Gateway;
 use crate::core::jsonrpc::{self, FrameReader, Message, PARSE_ERROR};
 use crate::core::registry::Registry;
 use crate::core::skillstore::{run_debounced_rescan, SkillStore};
-use crate::util::{display_path, log_info, log_warn, LogLevel, set_log_level};
+use crate::util::{display_path, log_info, log_warn, set_log_level, LogLevel};
 
 pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
     let cfg_path = resolve_config_path(args.config.as_deref());
@@ -31,7 +31,11 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
     }
     set_log_level(LogLevel::parse(&cfg.settings.log_level)?);
 
-    log_info!("caby v{} starting — config {}", env!("CARGO_PKG_VERSION"), display_path(&cfg_path));
+    log_info!(
+        "caby v{} starting — config {}",
+        env!("CARGO_PKG_VERSION"),
+        display_path(&cfg_path)
+    );
     log_info!("downstream servers configured: {}", cfg.servers.len());
     log_info!(
         "resident tool list: 2 meta tools (~{} tokens est., real cl100k ≈ 200)",
@@ -65,7 +69,11 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
         }
 
         let settings = Arc::new(cfg.settings.clone());
-        let (gateway, rx) = Gateway::new(Arc::clone(&registry), Arc::clone(&store), Arc::clone(&settings));
+        let (gateway, rx) = Gateway::new(
+            Arc::clone(&registry),
+            Arc::clone(&store),
+            Arc::clone(&settings),
+        );
 
         // stdout writer task
         let writer = tokio::spawn(stdout_writer(rx));
@@ -131,7 +139,10 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
             }
         };
 
-        log_info!("stdin closed — tearing down {} server(s)", registry.server_names().await.len());
+        log_info!(
+            "stdin closed — tearing down {} server(s)",
+            registry.server_names().await.len()
+        );
         rescan_shutdown.notify_waiters();
         registry.shutdown_all().await;
         drop(writer);

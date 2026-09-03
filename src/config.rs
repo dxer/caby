@@ -209,7 +209,14 @@ mod tests {
     fn shell_split_respects_quotes() {
         assert_eq!(
             shell_split("docker run -i --rm mcp/postgres \"postgresql://localhost/db\""),
-            vec!["docker", "run", "-i", "--rm", "mcp/postgres", "postgresql://localhost/db"]
+            vec![
+                "docker",
+                "run",
+                "-i",
+                "--rm",
+                "mcp/postgres",
+                "postgresql://localhost/db"
+            ]
         );
         assert_eq!(shell_split("echo 'a b'"), vec!["echo", "a b"]);
         assert_eq!(shell_split("cmd"), vec!["cmd"]);

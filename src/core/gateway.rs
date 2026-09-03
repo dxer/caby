@@ -12,18 +12,20 @@
 
 use std::sync::{Arc, Mutex as StdMutex};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::config::Settings;
 use crate::core::jsonrpc::{self, Id, Message};
 use crate::core::mcpserver::{
-    CallFailure, OUR_PROTOCOL_VERSION, RegisteredTool, SUPPORTED_PROTOCOL_VERSIONS,
+    CallFailure, RegisteredTool, OUR_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS,
 };
 use crate::core::registry::Registry;
 use crate::core::sandbox;
 use crate::core::skillstore::{Skill, SkillStore};
-use crate::util::{approx_tokens, display_path, log_debug, log_info, log_warn, LogLevel, set_log_level};
+use crate::util::{
+    approx_tokens, display_path, log_debug, log_info, log_warn, set_log_level, LogLevel,
+};
 
 const META_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -95,7 +97,9 @@ impl Gateway {
             "notifications/initialized" => {
                 log_info!("host client initialized; gateway ready");
             }
-            "notifications/cancelled" | "notifications/progress" | "notifications/roots/list_changed" => {}
+            "notifications/cancelled"
+            | "notifications/progress"
+            | "notifications/roots/list_changed" => {}
             "logging/setLevel" => {
                 if let Some(level) = params.and_then(|p| p.get("level")).and_then(|l| l.as_str()) {
                     if let Ok(l) = LogLevel::parse(level) {
@@ -158,9 +162,7 @@ impl Gateway {
                 *slot = Some(ci);
             }
         }
-        log_info!(
-            "host connected (protocol {negotiated}) — exposing 2 meta tools"
-        );
+        log_info!("host connected (protocol {negotiated}) — exposing 2 meta tools");
         jsonrpc::ok(
             id.clone(),
             json!({
@@ -267,16 +269,14 @@ impl Gateway {
         })
     }
 
-    fn skill_payload(
-        &self,
-        skill: &Skill,
-        score: f64,
-        all_tools: &[RegisteredTool],
-    ) -> Value {
+    fn skill_payload(&self, skill: &Skill, score: f64, all_tools: &[RegisteredTool]) -> Value {
         let mut actions: Vec<Value> = Vec::new();
         let mut missing: Vec<String> = Vec::new();
         for entry in &skill.meta.allowed_tools {
-            match all_tools.iter().find(|t| t.id == *entry || t.name == *entry) {
+            match all_tools
+                .iter()
+                .find(|t| t.id == *entry || t.name == *entry)
+            {
                 Some(tool) => actions.push(json!({
                     "action": tool.id,
                     "description": tool.description,
@@ -306,12 +306,15 @@ impl Gateway {
     // --- call_action --------------------------------------------------------
 
     async fn call_action(&self, args: &Value) -> Value {
-        let skill_name = args.get("skill").and_then(|s| s.as_str()).unwrap_or_default();
-        let action = args.get("action").and_then(|a| a.as_str()).unwrap_or_default();
-        let parameters = args
-            .get("parameters")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let skill_name = args
+            .get("skill")
+            .and_then(|s| s.as_str())
+            .unwrap_or_default();
+        let action = args
+            .get("action")
+            .and_then(|a| a.as_str())
+            .unwrap_or_default();
+        let parameters = args.get("parameters").cloned().unwrap_or_else(|| json!({}));
 
         if skill_name.is_empty() || action.is_empty() {
             return tool_result_text(
@@ -389,7 +392,10 @@ fn passthrough_result(result: Value) -> Value {
             json!([{ "type": "text", "text": result.to_string() }]),
         );
     }
-    let is_error = result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_error = result
+        .get("isError")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     out.insert("isError".into(), json!(is_error));
     if let Some(sc) = result.get("structuredContent") {
         out.insert("structuredContent".into(), sc.clone());

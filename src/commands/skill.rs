@@ -4,7 +4,7 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde_json::Value;
 
 use crate::cli::{SkillArgs, SkillCmd, SkillDir, SkillInstallArgs, SkillNewArgs};
@@ -48,7 +48,11 @@ fn slugify(name: &str) -> String {
     let mut pending_dash = false;
     for c in name.trim().chars() {
         if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
-            let ch = if c.is_ascii() { c.to_ascii_lowercase() } else { c };
+            let ch = if c.is_ascii() {
+                c.to_ascii_lowercase()
+            } else {
+                c
+            };
             if pending_dash && !out.is_empty() {
                 out.push('-');
             }
@@ -141,11 +145,7 @@ fn fetch_skill_spec(spec: &str) -> anyhow::Result<Vec<(String, String)>> {
         let mut tried: Vec<String> = Vec::new();
         let mut found: Vec<(String, String)> = Vec::new();
         if let Some(p) = &path_part {
-            let candidates = [
-                format!("{p}.md"),
-                format!("skills/{p}.md"),
-                p.to_string(),
-            ];
+            let candidates = [format!("{p}.md"), format!("skills/{p}.md"), p.to_string()];
             for cand in candidates {
                 let url = format!("https://raw.githubusercontent.com/{user}/{repo}/HEAD/{cand}");
                 tried.push(url.clone());
@@ -168,17 +168,17 @@ fn fetch_skill_spec(spec: &str) -> anyhow::Result<Vec<(String, String)>> {
             return Ok(found);
         }
         // bare repo: list skills/ via the GitHub contents API
-        let api = format!(
-            "https://api.github.com/repos/{user}/{repo}/contents/skills"
-        );
+        let api = format!("https://api.github.com/repos/{user}/{repo}/contents/skills");
         match fetch_url(&api) {
             Ok(body) => {
-                let entries: Value = serde_json::from_str(&body)
-                    .context("github contents response unparseable")?;
+                let entries: Value =
+                    serde_json::from_str(&body).context("github contents response unparseable")?;
                 if let Some(arr) = entries.as_array() {
                     for entry in arr {
                         let path = entry.get("path").and_then(|p| p.as_str()).unwrap_or("");
-                        if path.ends_with(".md") && entry.get("type").and_then(|t| t.as_str()) == Some("file") {
+                        if path.ends_with(".md")
+                            && entry.get("type").and_then(|t| t.as_str()) == Some("file")
+                        {
                             let raw = format!(
                                 "https://raw.githubusercontent.com/{user}/{repo}/HEAD/{path}"
                             );

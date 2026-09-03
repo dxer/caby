@@ -13,7 +13,7 @@ use anyhow::Context;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{Mutex, Notify, RwLock, oneshot};
+use tokio::sync::{oneshot, Mutex, Notify, RwLock};
 
 use crate::config::{ServerDef, Settings};
 use crate::core::jsonrpc::{self, Id, Message};
@@ -21,8 +21,7 @@ use crate::core::minifier::{minify_schema, MinifyStats};
 use crate::util::{log_debug, log_error, log_info, log_warn};
 
 pub const OUR_PROTOCOL_VERSION: &str = "2025-06-18";
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
-    &["2025-06-18", "2025-03-26", "2024-11-05"];
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(6);
 
@@ -247,7 +246,8 @@ impl McpServer {
                 );
             }
             log_debug!("server '{}' protocol {negotiated}", self.name);
-            self.send_notification("notifications/initialized", None).await?;
+            self.send_notification("notifications/initialized", None)
+                .await?;
 
             // --- tools/list ---
             let list_result = self.request("tools/list", json!({})).await?;
@@ -354,11 +354,7 @@ impl McpServer {
         });
     }
 
-    fn dispatch(
-        pending: &PendingMap,
-        name: &str,
-        msg: Message,
-    ) {
+    fn dispatch(pending: &PendingMap, name: &str, msg: Message) {
         match msg {
             Message::Success(s) => {
                 if let Id::Num(n) = s.id {

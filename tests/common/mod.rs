@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub fn caby_bin() -> &'static str {
     env!("CARGO_BIN_EXE_caby")
@@ -204,9 +204,8 @@ impl GatewayClient {
                     self.stderr()
                 );
             }
-            let resp: Value = serde_json::from_str(line.trim()).unwrap_or_else(|e| {
-                panic!("gateway sent non-JSON '{}': {e}", line.trim())
-            });
+            let resp: Value = serde_json::from_str(line.trim())
+                .unwrap_or_else(|e| panic!("gateway sent non-JSON '{}': {e}", line.trim()));
             if resp.get("id").and_then(|i| i.as_u64()) == Some(id) {
                 return resp;
             }

@@ -10,10 +10,10 @@ use std::collections::{HashMap, HashSet};
 use crate::util::is_cjk;
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "the", "and", "or", "but", "of", "to", "for", "on", "in", "with", "at", "by",
-    "is", "are", "was", "were", "be", "been", "do", "does", "did", "it", "this", "that", "i",
-    "we", "you", "they", "my", "your", "our", "as", "if", "then", "than", "so", "into", "from",
-    "请", "的", "了", "和", "与", "在", "是", "要", "我", "你", "他", "它", "一个", "进行", "使用",
+    "a", "an", "the", "and", "or", "but", "of", "to", "for", "on", "in", "with", "at", "by", "is",
+    "are", "was", "were", "be", "been", "do", "does", "did", "it", "this", "that", "i", "we",
+    "you", "they", "my", "your", "our", "as", "if", "then", "than", "so", "into", "from", "请",
+    "的", "了", "和", "与", "在", "是", "要", "我", "你", "他", "它", "一个", "进行", "使用",
 ];
 
 /// Tokenize text: lowercase ASCII words, CJK unigrams+bigrams.
@@ -158,11 +158,8 @@ impl Matcher {
         }
         if query.trim().is_empty() {
             // no query: return everything, name-sorted
-            let mut all: Vec<(String, f64)> = self
-                .docs
-                .iter()
-                .map(|d| (d.id.clone(), 0.0))
-                .collect();
+            let mut all: Vec<(String, f64)> =
+                self.docs.iter().map(|d| (d.id.clone(), 0.0)).collect();
             all.sort_by(|a, b| a.0.cmp(&b.0));
             if top_k == 0 {
                 return all;
@@ -175,7 +172,8 @@ impl Matcher {
         if q_tokens.is_empty() {
             // query had no usable tokens (e.g. only stopwords or lone CJK chars):
             // return everything like a blank query
-            let mut all: Vec<(String, f64)> = self.docs.iter().map(|d| (d.id.clone(), 0.0)).collect();
+            let mut all: Vec<(String, f64)> =
+                self.docs.iter().map(|d| (d.id.clone(), 0.0)).collect();
             all.sort_by(|a, b| a.0.cmp(&b.0));
             if top_k > 0 {
                 all.truncate(top_k);
@@ -213,10 +211,9 @@ impl Matcher {
             score /= doc.norm * query_norm;
 
             let d_lower = doc.id.to_lowercase();
-            if !d_lower.is_empty()
-                && (q_lower.contains(&d_lower) || d_lower.contains(&q_lower)) {
-                    score += 0.5;
-                }
+            if !d_lower.is_empty() && (q_lower.contains(&d_lower) || d_lower.contains(&q_lower)) {
+                score += 0.5;
+            }
             if score > 0.0 {
                 results.push((doc.id.clone(), score));
             }

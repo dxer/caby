@@ -92,9 +92,7 @@ impl SkillStore {
                         // project shadows global on duplicate names
                         if seen.contains(&skill.name().to_lowercase()) {
                             if priority == 0 {
-                                collected.retain(|s| {
-                                    !s.name().eq_ignore_ascii_case(skill.name())
-                                });
+                                collected.retain(|s| !s.name().eq_ignore_ascii_case(skill.name()));
                             } else {
                                 continue; // global dup hidden by project
                             }
@@ -126,10 +124,7 @@ impl SkillStore {
             .collect();
         self.matcher.rebuild(docs);
         self.revision.fetch_add(1, Ordering::SeqCst);
-        log_info!(
-            "skill index reloaded: {} skills active",
-            self.skills.len()
-        );
+        log_info!("skill index reloaded: {} skills active", self.skills.len());
     }
 
     #[allow(dead_code)]
@@ -171,7 +166,10 @@ impl SkillStore {
     /// Start hot-reload watchers on the skill directories (if any exist).
     /// The callback only flags dirtiness; the async rescan loop performs the
     /// debounced rebuild (see `run_debounced_rescan`).
-    pub fn start_watchers(&mut self, dirty: Arc<std::sync::atomic::AtomicBool>) -> anyhow::Result<()> {
+    pub fn start_watchers(
+        &mut self,
+        dirty: Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<()> {
         self.start_watchers_on(dirty, project_skills_dir(), global_skills_dir())
     }
 
@@ -181,8 +179,8 @@ impl SkillStore {
         project_dir: PathBuf,
         global_dir: PathBuf,
     ) -> anyhow::Result<()> {
-        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            match res {
+        let mut watcher =
+            notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
                 Ok(ev) => {
                     let relevant = matches!(
                         ev.kind,
@@ -195,13 +193,16 @@ impl SkillStore {
                     }
                 }
                 Err(e) => log_warn!("skills watcher event error: {e}"),
-            }
-        })
-        .context("failed to create skill watcher")?;
+            })
+            .context("failed to create skill watcher")?;
 
         for dir in [project_dir, global_dir] {
             if dir.is_dir() || dir.parent().is_some_and(|p| p.is_dir()) {
-                let target = if dir.is_dir() { dir.clone() } else { dir.parent().unwrap().to_path_buf() };
+                let target = if dir.is_dir() {
+                    dir.clone()
+                } else {
+                    dir.parent().unwrap().to_path_buf()
+                };
                 match watcher.watch(&target, RecursiveMode::Recursive) {
                     Ok(()) => log_info!("watching skills: {}", target.display()),
                     Err(e) => log_warn!("cannot watch {}: {e}", target.display()),
@@ -227,7 +228,11 @@ fn load_skill_file(path: &Path, priority: u8) -> Option<Skill> {
 
 /// Debounced rescan task: waits for a shared "dirty" flag set by the watcher
 /// callback, then rescans the store. Keeps index reloads well under 100 ms.
-pub async fn run_debounced_rescan(store: Arc<std::sync::Mutex<SkillStore>>, dirty: Arc<std::sync::atomic::AtomicBool>, shutdown: Arc<tokio::sync::Notify>) -> anyhow::Result<()> {
+pub async fn run_debounced_rescan(
+    store: Arc<std::sync::Mutex<SkillStore>>,
+    dirty: Arc<std::sync::atomic::AtomicBool>,
+    shutdown: Arc<tokio::sync::Notify>,
+) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             _ = shutdown.notified() => return Ok(()),
@@ -302,7 +307,13 @@ mod tests {
         assert!(store.all_skills().is_empty());
         let rev0 = store.revision();
 
-        write_skills(&project, &[("new_skill.md", "---\nname: New Skill\ndescription: something new\n---\nbody")]);
+        write_skills(
+            &project,
+            &[(
+                "new_skill.md",
+                "---\nname: New Skill\ndescription: something new\n---\nbody",
+            )],
+        );
         store.scan_from(project.clone(), global.clone()); // manual rescan (sync path)
         assert_eq!(store.all_skills().len(), 1);
         assert!(store.revision() > rev0);

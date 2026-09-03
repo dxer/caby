@@ -214,14 +214,21 @@ mod tests {
         assert!(!pr.as_object().unwrap().contains_key("minimum"));
         assert!(!pr.as_object().unwrap().contains_key("examples"));
         assert_eq!(pr["type"], Value::from("integer"));
-        assert!(pr["description"].as_str().unwrap().contains("pull request number"));
+        assert!(pr["description"]
+            .as_str()
+            .unwrap()
+            .contains("pull request number"));
 
         let repo = &props["repo"];
         assert!(!repo.as_object().unwrap().contains_key("pattern"));
         assert!(!repo.as_object().unwrap().contains_key("default"));
         assert!(!repo.as_object().unwrap().contains_key("minLength"));
 
-        assert!(stats.reduction_pct() > 30.0, "reduction {}%", stats.reduction_pct());
+        assert!(
+            stats.reduction_pct() > 30.0,
+            "reduction {}%",
+            stats.reduction_pct()
+        );
         assert!(stats.fields_removed >= 10);
     }
 

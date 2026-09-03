@@ -5,14 +5,12 @@
 //! slower, so the strict 5 ms bound is enforced for release builds
 //! (`cargo test --release`) and a relaxed sanity bound in debug.
 
-
-
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
     use crate::core::matcher::{Doc, Matcher};
     use crate::core::minifier::minify_schema;
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
+    use std::time::Instant;
 
     fn verbose_schema() -> Value {
         json!({
@@ -98,7 +96,10 @@ mod tests {
         if strict {
             assert!(per <= 5.0, "intent matching took {per:.3} ms (>5 ms)");
         } else {
-            assert!(per <= 50.0, "debug intent matching pathologically slow: {per:.3} ms");
+            assert!(
+                per <= 50.0,
+                "debug intent matching pathologically slow: {per:.3} ms"
+            );
         }
     }
 
@@ -112,11 +113,17 @@ mod tests {
             300,
         );
         let strict = !cfg!(debug_assertions);
-        eprintln!("minify_schema: best {per:.3} ms ({})", if strict { "strict" } else { "debug" });
+        eprintln!(
+            "minify_schema: best {per:.3} ms ({})",
+            if strict { "strict" } else { "debug" }
+        );
         if strict {
             assert!(per <= 5.0, "schema minification took {per:.3} ms (>5 ms)");
         } else {
-            assert!(per <= 50.0, "debug minification pathologically slow: {per:.3} ms");
+            assert!(
+                per <= 50.0,
+                "debug minification pathologically slow: {per:.3} ms"
+            );
         }
     }
 
@@ -140,12 +147,17 @@ mod tests {
             100,
         );
         let strict = !cfg!(debug_assertions);
-        eprintln!("discovery pipeline (match + 20 minified schemas): best {per:.3} ms ({})",
-            if strict { "strict" } else { "debug" });
+        eprintln!(
+            "discovery pipeline (match + 20 minified schemas): best {per:.3} ms ({})",
+            if strict { "strict" } else { "debug" }
+        );
         if strict {
             assert!(per <= 5.0, "discovery pipeline took {per:.3} ms (>5 ms)");
         } else {
-            assert!(per <= 50.0, "debug discovery pipeline pathologically slow: {per:.3} ms");
+            assert!(
+                per <= 50.0,
+                "debug discovery pipeline pathologically slow: {per:.3} ms"
+            );
         }
     }
 }

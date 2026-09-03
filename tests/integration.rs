@@ -24,7 +24,8 @@ fn boot(env: &TestEnv) -> GatewayClient {
         .unwrap_or("");
     assert!(!protocol.is_empty(), "no protocolVersion in {init}");
     assert_eq!(
-        init.pointer("/result/serverInfo/name").and_then(|v| v.as_str()),
+        init.pointer("/result/serverInfo/name")
+            .and_then(|v| v.as_str()),
         Some("caby")
     );
     client
@@ -37,9 +38,20 @@ fn exactly_two_meta_tools_and_token_budget() {
     let mut client = boot(&env);
 
     let tools = client.tools_list();
-    let list = tools.pointer("/result/tools").and_then(|t| t.as_array()).unwrap();
-    assert_eq!(list.len(), 2, "must expose exactly 2 meta tools — got {:?}", list);
-    let names: Vec<&str> = list.iter().filter_map(|t| t.get("name").and_then(|n| n.as_str())).collect();
+    let list = tools
+        .pointer("/result/tools")
+        .and_then(|t| t.as_array())
+        .unwrap();
+    assert_eq!(
+        list.len(),
+        2,
+        "must expose exactly 2 meta tools — got {:?}",
+        list
+    );
+    let names: Vec<&str> = list
+        .iter()
+        .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+        .collect();
     assert!(names.contains(&"discover_skills"));
     assert!(names.contains(&"call_action"));
 
@@ -80,8 +92,11 @@ fn discover_ranks_pr_skill_first_with_minified_schemas() {
 
     let actions = top["actions"].as_array().unwrap();
     assert!(
-        actions.iter().any(|a| a["action"].as_str() == Some("github:get_pull_request")),
-        "expected get_pull_request action: {:?}", actions
+        actions
+            .iter()
+            .any(|a| a["action"].as_str() == Some("github:get_pull_request")),
+        "expected get_pull_request action: {:?}",
+        actions
     );
 
     // minified schema: noise gone, essentials kept
@@ -137,11 +152,7 @@ fn authorized_call_routes_and_returns_losslessly() {
 
     let resp = client.discover_until(
         "review pull request",
-        |r| {
-            parse_result(r)
-                .pointer("/skills/0/actions/0")
-                .is_some()
-        },
+        |r| parse_result(r).pointer("/skills/0/actions/0").is_some(),
         Duration::from_secs(5),
     );
     let _ = resp;
@@ -155,9 +166,16 @@ fn authorized_call_routes_and_returns_losslessly() {
             "parameters": {"pull_number": 42, "repo": "acme/widgets"}
         }),
     );
-    assert!(!is_error(&call), "authorized call failed: {}", text_of(&call));
+    assert!(
+        !is_error(&call),
+        "authorized call failed: {}",
+        text_of(&call)
+    );
     let text = text_of(&call);
-    assert!(text.contains("mock-github:get_pull_request called"), "unexpected text: {text}");
+    assert!(
+        text.contains("mock-github:get_pull_request called"),
+        "unexpected text: {text}"
+    );
 
     // structured content passed through losslessly
     let sc = call.pointer("/result/structuredContent");
@@ -170,7 +188,8 @@ fn authorized_call_routes_and_returns_losslessly() {
     // mock server really received it
     let logs = env.mock_call_log("github");
     assert!(
-        logs.iter().any(|l| l.contains("get_pull_request") && l.contains("42")),
+        logs.iter()
+            .any(|l| l.contains("get_pull_request") && l.contains("42")),
         "mock never received the call: {logs:?}"
     );
 }
@@ -197,7 +216,10 @@ fn unauthorized_call_is_blocked_before_downstream() {
             "parameters": {"pull_number": 1, "repo": "acme/x"}
         }),
     );
-    assert!(is_error(&blocked), "out-of-whitelist call must be rejected: {blocked}");
+    assert!(
+        is_error(&blocked),
+        "out-of-whitelist call must be rejected: {blocked}"
+    );
     let text = text_of(&blocked);
     assert!(text.contains("BLOCKED"), "missing BLOCKED marker: {text}");
     assert!(text.contains("merge_pull_request"));
@@ -297,7 +319,10 @@ fn hot_reload_picks_up_new_skill_under_100ms() {
             );
             break;
         }
-        assert!(Instant::now() < deadline, "hot reload never picked up the new skill");
+        assert!(
+            Instant::now() < deadline,
+            "hot reload never picked up the new skill"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     // modification is also hot-reloaded

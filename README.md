@@ -1,107 +1,135 @@
-# Caby (CabyMCP)
+# Caby — keep your agent calm & context lean
 
-> **Keep your agent calm & context lean.**
+> **Caby** (a clipped form of "capability") is a lightweight **meta-gateway and dynamic dispatcher** for the [Model Context Protocol](https://modelcontextprotocol.io) (MCP) ecosystem. It sits between AI coding clients (Claude Code, Cursor, Cline, …) and the real MCP servers, exposing only **2 meta tools (~200 tokens)** while discovering skill packs automatically from local directories — and enforcing a per-skill tool whitelist.
 
-Caby 是一款面向 MCP（Model Context Protocol）生态的轻量级元网关与动态调度工具：它充当 AI 编程客户端（Claude Code / Cursor / Cline）与真实底层 MCP Servers 之间的透明多路复用代理。
+[中文版说明 →](README.zh-CN.md) · MIT License · Rust 1.98+ · Zero runtime dependencies (single static binary)
 
-- **Token 极致压制** — 对上游客户端恒定只暴露 **2 个元工具**，常驻上下文 ≈ **200 tokens**（cl100k 实测）。
-- **目录约定自发现** — 自动扫描并毫秒级热监听本地技能目录，无需维护 Skill 配置清单。
-- **开箱即用 CLI** — 一键挂载 MCP 服务、技能包安装、各大 Agent 客户端自动注册。
-- **SOP 规则强绑定** — 不仅动态分发底层工具，更将业务操作准则与安全红线按需注入大模型。
-- **零外部依赖** — 单静态二进制交付（musl static-pie，~3.4 MB），无需 Node / Python / 数据库。
+---
+
+## Why Caby?
+
+Connecting an MCP server today is easy. Connecting **ten** is not:
+
+- Every server's `tools/list` schemas live in your client's context **permanently** — thousands of tokens burned on tools you barely use.
+- Keeping a skills/SOP list in sync means editing ever-growing config files.
+- Once a model has *all* tools visible, it happily calls anything — including the ones it should never touch.
+
+Caby inverts the model:
+
+| Problem | Caby's answer |
+| --- | --- |
+| Token bloat | Host only ever sees **2 meta tools** (`discover_skills`, `call_action`) — ~**200 tokens** resident |
+| Config maintenance | Skills are just `.md` files in a watched directory — **no skill list in config**, hot-reloaded in ~68 ms |
+| Hallucinated / off-limits calls | **Sandbox whitelist**: every action must be listed in the active skill's `allowed_tools`, else it is blocked **before** reaching any backend (100% intercepted, tested) |
+| Cold-start latency | Downstream servers are kept alive in a **persistent stdio subprocess pool**, initialized at boot |
+| Schema token cost | Downstream schemas are **minified** once at registration (recursively stripped of `$schema`, `title`, `pattern`, `minLength`, `examples`, …) |
+
+## Features
+
+- 🪶 **2 meta tools** — `discover_skills(query)` and `call_action(skill, action, parameters)`
+- 📁 **Directory convention discovery** — `.caby/skills/` (project) + `~/.config/caby/skills/` (global)
+- ⚡ **Hot reload** — `inotify` watcher; create/modify/delete a `.md` and the index rebuilds in ~68 ms, zero restarts
+- 🧠 **Intent matching** — TF-IDF cosine with CJK bigram tokenization (Chinese queries work out of the box)
+- 🔒 **Security sandbox** — per-skill `allowed_tools` whitelist, 100% interception of out-of-whitelist calls
+- ✂️ **Schema minifier** — keeps only `type` / `properties` / `required` / `description` / small `enum`s
+- 🔌 **Subprocess pool** — persistent stdio pipes with `initialize` handshake, serialized requests, crash auto-restart (backoff)
+- 🧩 **CLI** — `serve` / `add` / `remove` / `list` / `skill new` / `skill install` / `install --target <client>`
+- 📦 **Single static binary** — musl static-pie, ~3.4 MB, zero runtime deps (no Node/Python/glibc)
+- 🧪 **Tested** — 44 tests: unit + black-box integration (real processes over stdio) + perf gates
+
+## How it works
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │          Host Client (Claude Code / Cursor / Cline)         │
-│  - 全局常驻仅见 2 个元工具 (~200 Tokens)                     │
+│  - resident context: exactly 2 meta tools (~200 tokens)     │
 └──────────────────────────────┬──────────────────────────────┘
                                │ stdio (JSON-RPC 2.0)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                       Caby Gateway Core                     │
 │                                                             │
-│  [1. 外层协议暴露]                                           │
-│     ├── discover_skills(query)                             │
+│  [1. Host-facing protocol]                                   │
+│     ├── discover_skills(query)                              │
 │     └── call_action(skill, action, parameters)              │
 │                                                             │
-│  [2. 核心调度与发现引擎]                                     │
-│     ├── Skill Auto-Discovery & Watcher (扫描 + 热重载)       │
-│     ├── In-Memory Matcher (TF-IDF 意图匹配，含中文大分词)    │
-│     ├── Schema Minifier (递归裁剪 JSON Schema 冗余)          │
-│     └── Security Sandbox (白名单校验，100% 越权拦截)         │
+│  [2. Discovery & dispatch engine]                            │
+│     ├── Skill Auto-Discovery & Watcher (scan + hot reload)  │
+│     ├── In-Memory Matcher (TF-IDF, CJK bigrams)             │
+│     ├── Schema Minifier (recursive schema pruning)          │
+│     └── Security Sandbox (whitelist, 100% interception)     │
 │                                                             │
-│  [3. 下游子进程管理器 (Subprocess Pool)]                     │
-│     ├── Server 1: GitHub MCP (常驻 stdio 管道)              │
-│     ├── Server 2: Postgres MCP (常驻 stdio 管道)            │
-│     └── Server N: 自定义可执行文件 / Docker 容器             │
+│  [3. Downstream subprocess pool]                             │
+│     ├── Server 1: GitHub MCP (persistent stdio pipe)        │
+│     ├── Server 2: Postgres MCP (persistent stdio pipe)      │
+│     └── Server N: custom executable / docker container      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
+A typical agent conversation:
 
-## 快速开始
+1. **`initialize`** → Caby negotiates protocol version, advertises `tools` capability.
+2. **`tools/list`** → exactly two tools, ~200 cl100k tokens total.
+3. The model gets a task → **`discover_skills("review PR #42")`** → Caby ranks skills, returns the winner's **SOP rules** (markdown body) + its whitelisted actions with **minified schemas**.
+4. The model acts → **`call_action("github:get_pull_request", …)`** → sandbox check → routed over the persistent pipe → result passed through losslessly.
+5. Anything else → **`BLOCKED: …`** before any downstream process ever sees it.
+
+## Install
+
+### From source
 
 ```bash
-# 构建（开发）
+# debug build
 cargo build
 
-# 构建单静态二进制（零运行时依赖，musl）
-./scripts/build-static.sh            # → target/x86_64-unknown-linux-musl/release/caby
+# fully static single binary (musl, zero runtime deps)
+./scripts/build-static.sh        # → target/x86_64-unknown-linux-musl/release/caby
 
-# 挂载下游 MCP 服务（自动做 initialize 握手校验）
-caby add github --command "github-mcp-server" --env GITHUB_TOKEN=ghp_xxx
-caby add postgres --command "docker run -i --rm mcp/postgres postgresql://localhost/db"
-
-# 让 AI 客户端接入（自动修改客户端配置，零手工 JSON）
-caby install --target claude-code
-caby install --target cursor
-caby install --target cline
-
-# 启动网关（客户端通过 stdio 连接）
-caby serve
-```
-
-### 端到端演示
-
-```bash
+# run the whole demo (2 mock servers + 3 skills + scripted conversation)
 cargo build && ./scripts/demo.sh
 ```
 
-演示会启动两个 Mock MCP Servers + 三个示例技能，逐步展示：`initialize` → `tools/list`（仅 2 个元工具）→ `discover_skills`（命中技能并下发 SOP + 裁剪后schema）→ 授权调用 → 越权调用被 **BLOCKED**。
+Requirements: **Rust 1.85+** (stable). For the static build: `musl-gcc` (`apt install musl-tools` on Debian/Ubuntu).
 
----
+### Via package managers
 
-## 核心机制
+Not published yet — `cargo install caby` will work once the crate is on crates.io. In the meantime: build from source or grab a release binary from the [Releases](https://github.com/caby-dev/caby/releases) page.
 
-### 1. 双元工具（Dual Meta-Tools）
+## Quick start
 
-Caby 只向客户端声明 2 个工具，其余一切按需注入：
+```bash
+# 1. attach downstream MCP servers (handshake verified automatically)
+caby add github --command "github-mcp-server" --env GITHUB_TOKEN=ghp_xxx
+caby add postgres --command "docker run -i --rm mcp/postgres postgresql://localhost/db"
 
-| 工具 | 触发时机 | 入参 | 返回 |
-| --- | --- | --- | --- |
-| `discover_skills` | 大模型接到具体垂直任务时首先调用 | `query`（任务意图/关键词） | 最佳匹配技能的 **SOP 正文** + 白名单动作的 **裁剪后 schema** |
-| `call_action` | 拿到 SOP 后执行具体动作 | `skill`（激活技能名）、`action`（`server:tool`）、`parameters` | 下游 **无损结果透传**；越权立即返回标准错误 |
+# 2. register into your AI client (zero manual JSON editing)
+caby install --target claude-code     # writes ~/.claude.json
+caby install --target cursor          # writes ~/.cursor/mcp.json
+caby install --target cline           # writes Cline MCP settings
 
-常驻开销实测（`tools/list` 完整载荷，cl100k tokenizer）：**200 tokens**。
+# 3. start the gateway (your client connects over stdio)
+caby serve
+```
 
-### 2. Skills 目录自动发现 + 热重载
+That's it. Restart your client — you should see a single MCP server named `caby`, offering exactly two tools.
 
-扫描优先级（同名时项目优先）：
+## Skills
 
-1. 当前项目 `.caby/skills/`（项目独享）
-2. `~/.config/caby/skills/`（全局通用）
+### Authoring
 
-单 Markdown 文件即一个技能，YAML Front-Matter 声明元数据，正文即 SOP：
+A skill is **one markdown file**. Front-matter declares metadata; the body is the SOP handed to the model.
 
 ```markdown
 ---
-name: PR 代码审查与质量检查
+name: PR 代码审查与质量检查          # display name (used by call_action)
 description: 当需要查看 GitHub PR 变更、审查代码 diff、分析潜在 bug、发表 review 评论时使用
-keywords:
+keywords:                            # optional — extra search terms
   - code review
-allowed_tools:
+  - pull request
+allowed_tools:                       # whitelist — the ONLY actions this skill may call
   - github:get_pull_request
   - github:create_review_comment
+# fallback: true                     # optional — surfaces when nothing else matches
 ---
 
 # 执行准则与安全规范
@@ -110,36 +138,42 @@ allowed_tools:
 3. 评语必须提供修改建议并附带改进后的代码块。
 ```
 
-文件系统监听（inotify，40ms 防抖）在**增删改后无需重启**即可重建内存索引——实测 `.md` 变更到 `discover_skills` 可见约 **68ms**（PRD 目标 ≤100ms）。
+Where they live (project wins on duplicate names):
 
-### 3. Schema Minifier
+| Priority | Directory | Scope |
+| --- | --- | --- |
+| 1 | `<project>/.caby/skills/` | project-only skills |
+| 2 | `~/.config/caby/skills/` | cross-project skills |
 
-拉取下游工具元数据时递归剔除 `$schema`、`title`、`pattern`、`minLength`、`examples`、`default`、`const` 等，仅保留 `type` / `properties` / `required` / `description` / 小 `enum`。详见 `src/core/minifier.rs`。
+Rules of thumb for good descriptions: say **when** the skill applies, use the words a model would naturally use for the task, and add English keywords for bilingual queries.
 
-### 4. Security Sandbox
+### Installation
 
-`call_action` 四步拦截链：**技能必须存在** → **action ∈ 白名单（100% 拦截，不触达下游）** → 服务可路由 → 派发。空白名单技能拒绝一切调用；`fallback` 技能只提供上下文、不授权任何工具。
+```bash
+caby skill new deploy-pipeline          # scaffold a template (front-matter included)
+caby skill install github:user/repo/my-skill   # from a GitHub repo path
+caby skill install github:user/repo             # scans the repo's skills/ directory
+caby skill install https://…/my-skill.md        # directly from a URL
+caby skill install ./local-skill.md             # from a local file
+```
 
-### 5. 下游进程池
-
-每个 Server 一条常驻 stdio 管道，启动即完成 `initialize` 握手并预注册工具，消除冷启动；请求按服务串行（MCP 安全默认）；崩溃自动重启（指数退避，`restart_max` 可配，`--no-restart` 关闭）。
-
----
+Missing servers are detected automatically (from `allowed_tools` prefixes) and reported — with an interactive offer to `caby add` them (`--yes` skips prompting).
 
 ## CLI
 
 ```
-caby serve [--config PATH] [--log-level LEVEL] [--no-restart] [--timeout-secs N]
+caby serve [--config PATH] [--log-level error|warn|info|debug|trace]
+           [--no-restart] [--timeout-secs N]
 caby add <name> --command <CMD> [--args ARG...] [--env K=V...] [--cwd DIR] [--no-verify]
 caby remove <name>
 caby list [--offline] [--json]
 caby skill new <name> [--dir project|global]
-caby skill install <spec> [--yes] [--dir project|global]   # github:user/repo[/path] | https://… | 本地 .md
-caby install --target <claude-code|cursor|cline> [--project] [--yes]
+caby skill install <spec> [--yes] [--dir project|global]
+caby install --target <claude-code|cursor|cline> [--project] [--yes] [--command <CMD>]
 caby version
 ```
 
-### `caby list` 示例
+`caby list` shows the live load state (probes each server for real tool counts):
 
 ```text
 Servers (2 running)
@@ -152,11 +186,9 @@ Skills (3 active)
 └── ~/.config/caby/skills/general_helper.md (authorized: 0 tools, fallback)
 ```
 
----
+## Configuration
 
-## 配置
-
-`~/.config/caby/config.json`（可用 `--config` / `$CABY_CONFIG` 覆盖）：
+Location: **`~/.config/caby/config.json`** (override with `--config` or `$CABY_CONFIG`).
 
 ```json
 {
@@ -182,58 +214,111 @@ Skills (3 active)
 }
 ```
 
----
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `log_level` | `info` | gateway logging to stderr (never stdout) |
+| `discover_top_k` | 3 | max skills returned per `discover_skills` |
+| `match_threshold` | 0.001 | minimum match score for a skill to be returned |
+| `call_timeout_secs` | 30 | per downstream tool-call timeout |
+| `minify_schemas` | true | prune schema noise at registration |
+| `restart_max` | 5 | auto-restarts of a crashed downstream server (`--no-restart` sets 0) |
 
-## 验收指标（实测）
+> Only **servers** live in the config file. Skills live in the skill directories — deliberately, see [Why Caby?](#why-caby).
 
-| 维度 | PRD 指标 | 实测 | 验证方式 |
-| --- | --- | --- | --- |
-| 环境依赖 | 零外部依赖、单静态二进制 | musl static-pie，3.4 MB，`ldd` 显示 statically linked | `scripts/build-static.sh` |
-| Token 消耗 | 常驻工具数 = 2，基准 150-200 Tokens | 2 个元工具；`tools/list` 载荷 **200 tokens**（cl100k 实测） | `exactly_two_meta_tools_and_token_budget` |
-| 自动化响应 | 技能 `.md` 增删改 100ms 内索引重载 | **~68 ms**（create 实测；modify/remove 亦热更新） | `hot_reload_picks_up_new_skill_under_100ms` |
-| 安全与隔离 | 白名单外调用 100% 拦截 | 拦截并返回 `BLOCKED…` 错误，下游 Mock 日志证实零泄漏 | `unauthorized_call_is_blocked_before_downstream` |
-| 执行延迟 | 网关内部路由/裁剪/匹配 ≤ 5ms | release 实测：minify **0.014ms**、matcher(100 技能) **0.333ms**、完整发现管线 **0.52ms** | `perf.rs`（`cargo test --release --bin caby perf`） |
+## Security model
 
-## 测试
+`call_action` runs a four-step interception chain, **in-order**:
+
+1. The named skill must exist (discover first).
+2. `action` must be strictly present in that skill's `allowed_tools` — **if not, return `BLOCKED` and stop. No downstream process is touched.**
+3. The target server must be configured and Ready.
+4. Only then is the call routed.
+
+Additional hardening: skills with an empty whitelist deny **everything**; `fallback` skills provide context only; malformed actions (`missing colon`, empty skill) are rejected with standard `isError` results. Secrets stay in your config file; nothing is sent except framed JSON-RPC to the servers you configured.
+
+## Performance (measured, not promised)
+
+| Metric | Value |
+| --- | --- |
+| Resident tool count | **2** |
+| Resident `tools/list` payload | **200 cl100k tokens** (802 chars, tiktoken-measured) |
+| Skill hot reload (create) | **~68 ms** from file write to `discover_skills`-visible |
+| Schema minification | **0.014 ms** / schema (release) |
+| Intent match over 100 skills | **0.333 ms** (release) |
+| Full discovery pipeline (match + 20 minified schemas) | **0.52 ms** (release) |
+| Out-of-whitelist interception | **100%** (integration-tested: mock server log proves zero leakage) |
+| Static binary | 3.4 MB, static-pie, zero shared libraries |
+
+## Tests
 
 ```bash
-cargo test                      # 单元 + 集成（35 + 9）
-cargo test --release --bin caby perf   # 5ms 性能门禁
+cargo test                            # 35 unit + 9 black-box integration tests
+cargo test --release --bin caby perf  # the ≤5 ms performance gate (strict in release)
+cargo clippy --all-targets            # currently 0 warnings
 ```
 
-集成测试为黑盒方式：真实启动 `caby serve` 进程，通过 stdio 与 Mock MCP Servers 对话。
+Integration tests are true black-box: they spawn the real `caby serve` binary and speak MCP over stdio to mock downstream servers, covering ranking, minification, routing, **blocking**, lossless passthrough, hot reload, and error paths.
 
-## 项目结构
+## Project layout
 
 ```text
 src/
-├── main.rs / cli.rs          # 入口 + clap CLI
-├── config.rs                 # 配置持久化
-├── util.rs                   # 日志、路径、shell 切分、token 估算
+├── main.rs / cli.rs          # entry point + clap CLI
+├── config.rs                 # config persistence (servers + settings)
+├── util.rs                   # logging, paths, shell splitting, token estimate
 ├── core/
-│   ├── jsonrpc.rs            # JSON-RPC 2.0 + stdio framing（含 Content-Length 兼容）
-│   ├── yaml_fm.rs            # Front-Matter 解析（零 YAML 依赖）
-│   ├── matcher.rs            # TF-IDF 意图匹配（CJK 二元分词）
-│   ├── minifier.rs           # Schema 剪枝
-│   ├── skillstore.rs         # 扫描 + notify 热重载
-│   ├── mcpserver.rs          # 下游 MCP 客户端（常驻管道、串行请求）
-│   ├── registry.rs           # 进程池 + 工具索引
-│   ├── sandbox.rs            # 白名单沙箱
-│   └── gateway.rs            # 面向宿主的两元工具网关
+│   ├── jsonrpc.rs            # JSON-RPC 2.0 + stdio framing (newline + Content-Length)
+│   ├── yaml_fm.rs            # front-matter parsing (zero YAML deps)
+│   ├── matcher.rs            # TF-IDF intent matching (CJK bigrams)
+│   ├── minifier.rs           # recursive schema pruning
+│   ├── skillstore.rs         # directory scan + notify hot reload
+│   ├── mcpserver.rs          # downstream MCP client (persistent pipes, serialized)
+│   ├── registry.rs           # subprocess pool + tool index
+│   ├── sandbox.rs            # whitelist enforcement
+│   └── gateway.rs            # host-facing 2-tool gateway
 ├── commands/                 # serve / add / remove / list / skill / install
-├── installers/               # claude-code / cursor / cline 配置注入
-└── bin/mock-mcp.rs           # 测试用 Mock MCP Server
-tests/                        # 黑盒集成测试
-scripts/                      # 构建静态二进制 / 演示
+├── installers/               # claude-code / cursor / cline config writers
+├── bin/mock-mcp.rs           # mock MCP servers for tests & demos
+└── perf.rs                   # ≤5 ms performance gates
+tests/                        # black-box integration suite
+examples/skills/              # example skill packs
+scripts/
+├── build-static.sh           # musl static binary build
+└── demo.sh                   # end-to-end demo transcript
 ```
 
-## 设计取舍
+## Roadmap
 
-- **stateless 沙箱**：`call_action` 只做白名单成员校验（技能存在 + action 属于其 `allowed_tools`），不依赖「激活窗口」状态，模型在会话任意时刻都可复用已发现的技能。
-- **每服务串行请求**：遵循 MCP 客户端默认安全语义，LLM 调用频率下无感知。
-- **schemas 在注册期裁剪**：minify 在 `tools/list` 返回时一次性完成，发现路径零开销。
-- **README 之外的命令行为均可由 `--help` 查询**。
+- [x] Core gateway (2 meta tools, discovery, dispatch, sandbox, minification)
+- [x] Skill auto-discovery + hot reload, CLI, agent installers, static binary
+- [ ] End-to-end verification against **real** servers (`github-mcp-server`, postgres-in-docker) — currently covered by mocks
+- [ ] macOS / Windows support
+- [ ] CI pipeline (tests + perf gates + artifacts) and release badges
+- [ ] Skill pack registry / `caby skill search`
+- [ ] `caby doctor` diagnostics subcommand
+- [ ] Sampling / roots client capabilities (nice-to-have)
+
+## Contributing
+
+PRs welcome. Keep it small and testable:
+
+```bash
+cargo fmt && cargo clippy --all-targets && cargo test
+# perf gates: cargo test --release --bin caby perf
+```
+
+Open an issue first for design changes. Be kind — the thread is the whole point of this project.
+
+## FAQ
+
+**Does Caby replace my per-tool MCP config?** Partially. Servers are still declared (in `config.json`, or just add them with `caby add`), but per-skill tool choices and SOPs live in skill files — which is exactly what removes the token and maintenance burden.
+
+**Is my data sent anywhere?** No. Everything runs locally; there is no telemetry, no network except the servers you configured and the skill-pack fetches you trigger explicitly.
+
+**What if a downstream server crashes?** Caby restarts it with exponential backoff (up to `restart_max`); in-flight calls fail cleanly with a `isError` result.
+
+**Which protocol versions?** Supports `2025-06-18`, `2025-03-26`, `2024-11-05` (negotiated on `initialize`).
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

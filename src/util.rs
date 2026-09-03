@@ -224,7 +224,12 @@ pub fn approx_tokens(s: &str) -> usize {
             let mut j = i;
             while j < bytes.len() {
                 let cj = s[j..].chars().next().unwrap();
-                if cj.is_ascii_alphanumeric() || cj == '_' || cj == '-' || cj.is_whitespace() || is_cjk(cj) {
+                if cj.is_ascii_alphanumeric()
+                    || cj == '_'
+                    || cj == '-'
+                    || cj.is_whitespace()
+                    || is_cjk(cj)
+                {
                     break;
                 }
                 j += cj.len_utf8();
