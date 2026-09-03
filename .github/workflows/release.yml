@@ -1,0 +1,109 @@
+name: Release
+
+# Builds static binaries for Linux (x86_64, aarch64), Windows (x86_64) and
+# macOS (x86_64, aarch64), runs the full test suite, then attaches the
+# artifacts to a GitHub Release.
+#
+# Trigger: push a tag like `v0.1.0`:
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 — fully static (musl), this is the flagship artifact
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            setup-cross: true
+          # Linux aarch64 — fully static (musl)
+          - name: linux-aarch64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            setup-cross: true
+          # Windows x86_64 (MSVC)
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          # macOS Intel
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+          # macOS Apple Silicon
+          - name: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # musl cross-compilers (musl-gcc / aarch64-linux-musl-gcc) for the static
+      # Linux builds; ring (TLS) needs a working C toolchain for the target.
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        if: matrix.setup-cross
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: tests
+        run: cargo test --release
+
+      - name: build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: rename artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="target/${{ matrix.target }}/release/caby${{ matrix.os == 'windows-latest' && '.exe' || '' }}"
+          DST="${{ runner.temp }}/caby-${{ matrix.name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}"
+          cp "$SRC" "$DST"
+          ls -lh "$DST"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caby-${{ matrix.name }}
+          path: ${{ runner.temp }}/caby-${{ matrix.name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: sign checksums
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum caby-* | tee checksums.txt
+
+      - name: attach to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
