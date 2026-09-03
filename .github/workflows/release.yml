@@ -38,9 +38,10 @@ jobs:
           - name: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-          # macOS Intel
+          # macOS Intel — the macos-13 Intel runner has been retired; cross-compile
+          # x86_64-apple-darwin from the arm64 runner (clang targets both arches)
           - name: macos-x86_64
-            os: macos-13
+            os: macos-14
             target: x86_64-apple-darwin
           # macOS Apple Silicon
           - name: macos-aarch64
@@ -56,8 +57,11 @@ jobs:
 
       # musl cross-compilers (musl-gcc / aarch64-linux-musl-gcc) for the static
       # Linux builds; ring (TLS) needs a working C toolchain for the target.
+      # NOTE: `target` is a REQUIRED input of this action (${INPUT_TARGET:?}).
       - uses: taiki-e/setup-cross-toolchain-action@v1
         if: matrix.setup-cross
+        with:
+          target: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
