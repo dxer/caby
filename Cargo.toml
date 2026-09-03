@@ -35,7 +35,7 @@ clap = { version = "4", features = ["derive"] }
 notify = "8"
 dirs = "6"
 anyhow = "1"
-ureq = "2"
+ureq = "3"
 
 [profile.release]
 opt-level = 3
