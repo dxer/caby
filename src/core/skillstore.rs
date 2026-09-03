@@ -21,7 +21,10 @@ use crate::core::matcher::{Doc, Matcher};
 use crate::core::yaml_fm::{split_front_matter, SkillMeta};
 use crate::util::{global_skills_dir, log_debug, log_info, log_warn, project_skills_dir};
 
-const DEBOUNCE: Duration = Duration::from_millis(40);
+/// Debounce for fs-event bursts. Small enough that index reload stays
+/// well under the 100 ms PRD budget, large enough to coalesce the 2-5 events
+/// a single editor write typically produces.
+const DEBOUNCE: Duration = Duration::from_millis(12);
 
 #[derive(Debug, Clone)]
 pub struct Skill {
@@ -242,7 +245,7 @@ pub async fn run_debounced_rescan(
                     if dirty.load(Ordering::Acquire) {
                         break;
                     }
-                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    tokio::time::sleep(Duration::from_millis(5)).await;
                 }
             } => {
                 // debounce: absorb a burst of fs events
