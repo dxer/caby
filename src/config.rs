@@ -223,6 +223,22 @@ mod tests {
     }
 
     #[test]
+    fn shell_split_preserves_windows_paths() {
+        // regression: backslash must not mangle Windows paths
+        assert_eq!(
+            shell_split(r"C:\Users\runner\bin\server.exe"),
+            vec![r"C:\Users\runner\bin\server.exe"]
+        );
+        assert_eq!(
+            shell_split(r#""C:\Program Files\Server\mock.exe" --flag"#),
+            vec![r"C:\Program Files\Server\mock.exe", "--flag"]
+        );
+        // unix-style escapes still work
+        assert_eq!(shell_split(r"echo hello\ world"), vec!["echo", "hello world"]);
+        assert_eq!(shell_split(r#"echo "a\\b""#), vec!["echo", r"a\b"]);
+    }
+
+    #[test]
     fn env_flag_parsing() {
         let (k, v) = parse_env_flag("GITHUB_TOKEN=ghp_xxx").unwrap();
         assert_eq!(k, "GITHUB_TOKEN");

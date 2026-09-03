@@ -125,6 +125,11 @@ pub fn project_skills_dir() -> PathBuf {
 
 /// Split a command string the way a POSIX shell would for simple cases:
 /// whitespace-separated tokens, single/double quotes, backslash escapes.
+///
+/// Backslash only escapes what a shell would escape (whitespace, quotes,
+/// another backslash); everywhere else it is kept literally so Windows paths
+/// like `C:\Users\runner\mock.exe` survive unmangled — this matters for
+/// `caby add --command` and for server commands stored in config.json.
 pub fn shell_split(input: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut cur = String::new();
@@ -146,19 +151,31 @@ pub fn shell_split(input: &str) -> Vec<String> {
                 while let Some(c2) = chars.next() {
                     match c2 {
                         '"' => break,
-                        '\\' => {
-                            if let Some(next) = chars.next() {
-                                cur.push(next);
+                        '\\' => match chars.next() {
+                            Some(n) if n == '"' || n == '\\' => cur.push(n),
+                            Some(n) => {
+                                cur.push('\\');
+                                cur.push(n);
                             }
-                        }
+                            None => cur.push('\\'),
+                        },
                         other => cur.push(other),
                     }
                 }
             }
             '\\' => {
                 in_tok = true;
-                if let Some(next) = chars.next() {
-                    cur.push(next);
+                match chars.next() {
+                    // escapes whitespace, quotes or another backslash
+                    Some(n) if n.is_whitespace() || n == '\'' || n == '"' || n == '\\' => {
+                        cur.push(n);
+                    }
+                    // anything else: keep the backslash literally (Windows paths)
+                    Some(n) => {
+                        cur.push('\\');
+                        cur.push(n);
+                    }
+                    None => cur.push('\\'),
                 }
             }
             c if c.is_whitespace() => {
