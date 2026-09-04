@@ -119,7 +119,7 @@ jobs:
           sha256sum caby-* | tee checksums.txt
 
       - name: attach to GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           generate_release_notes: true
