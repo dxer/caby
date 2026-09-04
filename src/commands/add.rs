@@ -70,8 +70,9 @@ pub fn run(args: &AddArgs) -> anyhow::Result<()> {
     }
     println!("  config  : {}", display_path(&path));
     println!();
+    println!("note: a running `caby serve` picks this up automatically (config hot-reload).");
     println!(
-        "next: run `caby serve` to start the gateway, or `caby skill install <pack>` to wire skills."
+        "  otherwise start it with `caby serve`, or wire skills via `caby skill install <pack>`;."
     );
     Ok(())
 }

@@ -101,6 +101,11 @@ impl McpServer {
         self.shutdown.notify_waiters();
     }
 
+    /// Snapshot of the definition this server was spawned from.
+    pub fn definition(&self) -> ServerDef {
+        self.cfg.clone()
+    }
+
     pub async fn state(&self) -> ServerState {
         self.state.read().await.clone()
     }

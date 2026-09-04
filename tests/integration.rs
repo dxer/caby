@@ -368,6 +368,56 @@ fn hot_reload_picks_up_new_skill_under_100ms() {
 }
 
 #[test]
+fn dynamic_mcp_servers_attach_and_detach_without_restart() {
+    let mut env = TestEnv::new();
+    env.write_config(&[]); // no servers yet
+    env.write_skill("git_review.md", GIT_REVIEW_SKILL);
+    let mut client = boot(&env);
+
+    // baseline: the github server is missing
+    let before = client.discover("review pull request");
+    let missing = |r: &serde_json::Value| {
+        parse_result(r)
+            .pointer("/skills/0/missing_servers")
+            .and_then(|m| m.as_array())
+            .map(|a| a.iter().any(|s| s.as_str() == Some("github")))
+            .unwrap_or(false)
+    };
+    assert!(missing(&before), "github should be missing: {before}");
+
+    // attach while serving — `caby add` writes the same config file
+    env.write_config(&[("github", "github")]);
+    let resp = client.discover_until(
+        "review pull request",
+        |r| parse_result(r).pointer("/skills/0/actions/0").is_some(),
+        Duration::from_secs(10),
+    );
+    assert!(!is_error(&resp), "discover failed: {}", text_of(&resp));
+
+    // the dynamically attached server actually routes calls
+    let call = client.tools_call(
+        "call_action",
+        serde_json::json!({
+            "skill": "PR 代码审查与质量检查",
+            "action": "github:get_pull_request",
+            "parameters": {"pull_number": 7, "repo": "acme/widgets"}
+        }),
+    );
+    assert!(
+        !is_error(&call),
+        "call via hot-attached server failed: {call}"
+    );
+
+    // detach while serving — `caby remove` rewrites the same config file
+    env.write_config(&[]);
+    client.discover_until(
+        "review pull request",
+        |r| missing(r),
+        Duration::from_secs(10),
+    );
+}
+
+#[test]
 fn downstream_failure_surfaces_cleanly() {
     let mut env = TestEnv::new();
     env.write_config(&[("github", "github")]);

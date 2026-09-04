@@ -19,5 +19,6 @@ pub fn run(args: &RemoveArgs) -> anyhow::Result<()> {
         args.name,
         display_path(&path)
     );
+    println!("note: a running `caby serve` detaches it automatically (config hot-reload).");
     Ok(())
 }

@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use tokio::sync::{Notify, RwLock};
 
-use crate::config::Config;
+use crate::config::{Config, ServerDef, Settings};
 use crate::core::mcpserver::{McpServer, RegisteredTool, ServerState};
 
 pub struct Registry {
@@ -30,22 +30,75 @@ impl Registry {
     pub async fn spawn_all(&self, cfg: &Config) -> Vec<String> {
         let mut spawned = Vec::new();
         for def in cfg.enabled_servers() {
-            let server = McpServer::new(
-                def.name.clone(),
-                def.clone(),
-                Arc::new(cfg.settings.clone()),
-            );
-            spawned.push(def.name.clone());
-            {
-                let mut map = self.servers.write().await;
-                map.insert(def.name.clone(), Arc::clone(&server));
-            }
-            let server_for_task = Arc::clone(&server);
-            tokio::spawn(async move {
-                server_for_task.run().await;
-            });
+            spawned.push(self.spawn_one(def, &cfg.settings).await);
         }
         spawned
+    }
+
+    /// Spawn (or re-spawn) a single server, replacing any live one.
+    pub async fn spawn_one(&self, def: &ServerDef, settings: &Settings) -> String {
+        let server = McpServer::new(def.name.clone(), def.clone(), Arc::new(settings.clone()));
+        {
+            let mut map = self.servers.write().await;
+            map.insert(def.name.clone(), Arc::clone(&server));
+        }
+        let server_for_task = Arc::clone(&server);
+        tokio::spawn(async move {
+            server_for_task.run().await;
+        });
+        def.name.clone()
+    }
+
+    /// Stop and forget one server. In-flight calls on the old handle fail
+    /// fast; the old lifecycle task tears itself down via `trigger_shutdown`.
+    pub async fn remove_one(&self, name: &str) {
+        let old = {
+            let mut map = self.servers.write().await;
+            map.remove(name)
+        };
+        if let Some(server) = old {
+            server.trigger_shutdown();
+        }
+    }
+
+    /// Reconcile live servers with the config: start added/enabled/changed
+    /// definitions, stop removed/disabled ones. Returns human-readable events
+    /// (empty = steady state). This is what makes `caby add/remove` take
+    /// effect in a running `caby serve` with no restart.
+    pub async fn reconcile(&self, cfg: &Config) -> Vec<String> {
+        let mut events = Vec::new();
+        let wanted: std::collections::HashMap<String, ServerDef> = cfg
+            .enabled_servers()
+            .into_iter()
+            .map(|d| (d.name.clone(), d.clone()))
+            .collect();
+
+        // stop removed / disabled / redefined servers first
+        let current: Vec<(String, ServerDef)> = {
+            let map = self.servers.read().await;
+            map.iter()
+                .map(|(name, server)| (name.clone(), server.definition()))
+                .collect()
+        };
+        for (name, def) in current {
+            if wanted.get(&name) != Some(&def) {
+                self.remove_one(&name).await;
+                events.push(format!("stopped {name}"));
+            }
+        }
+
+        // start added / enabled / redefined servers
+        for def in cfg.enabled_servers() {
+            let needs_start = match self.server(&def.name).await {
+                Some(server) => server.definition() != *def,
+                None => true,
+            };
+            if needs_start {
+                self.spawn_one(def, &cfg.settings).await;
+                events.push(format!("started {}", def.name));
+            }
+        }
+        events
     }
 
     pub async fn server(&self, name: &str) -> Option<Arc<McpServer>> {

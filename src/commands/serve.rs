@@ -90,6 +90,50 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
             });
         }
 
+        // config hot-reload: `caby add/remove` (or any edit of the config
+        // file) takes effect in this running gateway — no restart. The config
+        // is saved atomically (tmp + rename), so a plain signature check is
+        // enough; unparseable states are skipped, never applied.
+        // ponytail: fixed 250 ms poll; a file watcher would be fancier, but
+        // config changes are rare and this is deterministic on every OS.
+        {
+            let registry = Arc::clone(&registry);
+            let gw = Arc::clone(&gateway);
+            let cfg_path = cfg_path.clone();
+            let shutdown = Arc::clone(&rescan_shutdown);
+            tokio::spawn(async move {
+                let mut last: Option<(std::time::SystemTime, u64)> = None;
+                loop {
+                    tokio::select! {
+                        _ = shutdown.notified() => break,
+                        _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                            let cur = config_signature(&cfg_path);
+                            if cur != last {
+                                last = cur;
+                                match load_config(&cfg_path) {
+                                    Ok(next) => {
+                                        let events = registry.reconcile(&next).await;
+                                        if !events.is_empty() {
+                                            log_info!("config changed — {}", events.join(", "));
+                                            gw.notify_host(jsonrpc::notif(
+                                                "notifications/tools/list_changed",
+                                                None,
+                                            ))
+                                            .await;
+                                        }
+                                    }
+                                    Err(e) => log_warn!(
+                                        "ignoring unreadable config {}: {e:#}",
+                                        display_path(&cfg_path)
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         // --- host stdio loop ---
         let mut stdin = tokio::io::stdin();
         let mut fr = FrameReader::new();
@@ -150,6 +194,14 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
     })?;
 
     Ok(())
+}
+
+/// Cheap change detector for the config file: (mtime, len). `None` when
+/// the file is absent (treated as "no servers configured").
+fn config_signature(path: &std::path::Path) -> Option<(std::time::SystemTime, u64)> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok().map(|t| (t, m.len())))
 }
 
 async fn stdout_writer(mut rx: mpsc::Receiver<Vec<u8>>) {

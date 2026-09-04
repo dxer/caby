@@ -14,7 +14,7 @@ pub const CONFIG_VERSION: u32 = 1;
 pub const DEFAULT_CALL_TIMEOUT_SECS: u64 = 30;
 pub const DEFAULT_RESTART_MAX: u32 = 5;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServerDef {
     pub name: String,
     /// Executable or full command line (may be shell-split).
