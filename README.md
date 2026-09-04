@@ -191,7 +191,7 @@ Skills (3 active)
 Every `caby serve` is a launcher: the first one hosts a shared daemon (spawning
 the downstream set exactly once); later ones attach as thin proxies over
 loopback TCP. If the host exits, the next client transparently takes over and
-replays unanswered requests — no orphans, no `stop` command. Daemons are
+replays unanswered requests (at-least-once) — no orphans, no `stop` command. Daemons are
 isolated per config file (`<config>.daemon.lock`). Set `CABY_NO_DAEMON=1` to
 force classic single-process mode.
 

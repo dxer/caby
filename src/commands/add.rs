@@ -72,7 +72,7 @@ pub fn run(args: &AddArgs) -> anyhow::Result<()> {
     println!();
     println!("note: a running `caby serve` picks this up automatically (config hot-reload).");
     println!(
-        "  otherwise start it with `caby serve`, or wire skills via `caby skill install <pack>`;."
+        "  otherwise start it with `caby serve`, or wire skills via `caby skill install <pack>`."
     );
     Ok(())
 }

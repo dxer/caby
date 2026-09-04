@@ -190,7 +190,7 @@ Skills (3 active)
 
 每个 `caby serve` 都是 launcher：第一个启动者托管共享 daemon（下游集合只
 spawn 一次），之后的都以精简代理经环回 TCP 接入。宿主退出后，下一个客户端
-透明接管并重放在途请求——无孤儿进程、无需 `stop` 命令。daemon 按配置文件隔离
+透明接管并重放在途请求（at-least-once：在途请求若已被死 daemon 执行过，可能再跑一次）——无孤儿进程、无需 `stop` 命令。daemon 按配置文件隔离
 （`<config>.daemon.lock`）。设 `CABY_NO_DAEMON=1` 可强制回到经典单进程模式。
 
 ## 配置

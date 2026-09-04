@@ -22,7 +22,8 @@ One downstream set, any number of agent clients.
   default, keeping tests hermetic).
 - Covered by `shared_daemon_serves_two_clients_and_survives_first_host_exit`:
   two clients share one downstream set; killing the first host re-elects the
-  second with no lost calls.
+  second with no lost calls (at-least-once: a request the dead daemon
+  already ran may run twice).
 
 ## v0.1.0 — initial OSS release
 

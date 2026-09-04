@@ -11,7 +11,8 @@
 //! it — so the next launcher transparently takes over: no orphans, no PID
 //! checks, no reaper, no `stop` command. The proxy tracks in-flight request
 //! ids and replays unacknowledged requests after failover, so a daemon
-//! handover costs at most one retry, never a lost call.
+//! handover never loses a call (at-least-once: a request the dead daemon
+//! already executed may run again on the new host).
 //!
 //! `CABY_NO_DAEMON=1` forces classic single-process mode (the test harness
 //! sets this so tests stay isolated).
@@ -146,28 +147,59 @@ pub struct Attached {
     wr: OwnedWriteHalf,
 }
 
+/// What a probe of the lockfile's daemon found.
+enum Probe {
+    /// Live daemon, hello accepted.
+    Live(Attached),
+    /// Nothing listening (refused): dead daemon, stale lock — safe to delete.
+    Dead,
+    /// Reachable but silent: another launcher claimed the lock and is still
+    /// starting (its accept loop comes up after `setup_core`). Never delete
+    /// its lock, or two launchers would each host a set (split brain).
+    Starting,
+}
+
 /// Connect to the daemon in `info`, say hello, expect `ok`.
-async fn connect_hello(info: &DaemonInfo) -> Option<Attached> {
+async fn connect_hello(info: &DaemonInfo) -> Probe {
     let addr = format!("127.0.0.1:{}", info.port);
-    let stream = tokio::time::timeout(Duration::from_millis(500), TcpStream::connect(&addr))
-        .await
-        .ok()
-        .and_then(|r| r.ok())?;
+    let stream =
+        match tokio::time::timeout(Duration::from_millis(500), TcpStream::connect(&addr)).await {
+            Ok(Ok(s)) => s,
+            // Refused (or no listener at all): the daemon is gone.
+            _ => return Probe::Dead,
+        };
     let (rd, mut wr) = stream.into_split();
     let mut rd = BufReader::new(rd);
     let hello = format!("{{\"token\":\"{}\"}}\n", info.token);
     if wr.write_all(hello.as_bytes()).await.is_err() {
-        return None;
+        return Probe::Dead;
     }
     let mut line = String::new();
-    let n = tokio::time::timeout(Duration::from_secs(5), rd.read_line(&mut line))
-        .await
-        .ok()?
-        .ok()?;
-    if n == 0 || line.trim() != "ok" {
-        return None;
+    // Short hello window: a live daemon answers in ms; patience for a
+    // starting one comes from `wait_for_daemon` retries, not from here.
+    match tokio::time::timeout(Duration::from_millis(500), rd.read_line(&mut line)).await {
+        Ok(Ok(n)) if n > 0 && line.trim() == "ok" => Probe::Live(Attached { rd, wr }),
+        // Closed or garbage: not ours (or died mid-handshake).
+        Ok(_) => Probe::Dead,
+        // Connected but silent: still starting.
+        Err(_) => Probe::Starting,
     }
-    Some(Attached { rd, wr })
+}
+
+/// Wait for a starting daemon to answer hello (bounded): it claimed the lock
+/// and will serve shortly. Returns the attachment, or `None` if it died or
+/// never answered (caller deletes the lock and elects).
+async fn wait_for_daemon(lock: &Path) -> Option<Attached> {
+    for _ in 0..15 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let info = read_lock(lock)?;
+        match connect_hello(&info).await {
+            Probe::Live(att) => return Some(att),
+            Probe::Dead => return None,
+            Probe::Starting => {}
+        }
+    }
+    None
 }
 
 pub enum Lane {
@@ -195,11 +227,25 @@ pub async fn acquire(cfg_path: &Path) -> Lane {
 
     // fast path: live daemon?
     if let Some(info) = read_lock(&lock) {
-        if let Some(att) = connect_hello(&info).await {
-            log_info!("attached to shared caby daemon (pid {})", info.pid);
-            return Lane::Proxy(att);
+        match connect_hello(&info).await {
+            Probe::Live(att) => {
+                log_info!("attached to shared caby daemon (pid {})", info.pid);
+                return Lane::Proxy(att);
+            }
+            // Refused: dead daemon, stale lock.
+            Probe::Dead => {
+                let _ = std::fs::remove_file(&lock);
+            }
+            // Still starting: wait for it instead of deleting its lock
+            // (that would split-brain a second downstream set).
+            Probe::Starting => {
+                if let Some(att) = wait_for_daemon(&lock).await {
+                    log_info!("attached to shared caby daemon (pid {})", info.pid);
+                    return Lane::Proxy(att);
+                }
+                let _ = std::fs::remove_file(&lock); // never answered → stale
+            }
         }
-        let _ = std::fs::remove_file(&lock); // refused → stale
     }
 
     for _ in 0..4 {
@@ -222,16 +268,24 @@ pub async fn acquire(cfg_path: &Path) -> Lane {
             }
             drop(listener);
         }
-        // lost the race → attach to the winner. It bound its listener before
+        // Lost the race → attach to the winner. It bound its listener before
         // writing the lock, so a refused connection means it died mid-handover
-        // (stale lock) rather than a slow start — clear it and re-elect.
-        // (No lockfile: the winner vanished → re-elect.)
+        // (stale lock) — clear it and re-elect. A silent winner is still
+        // starting: wait it out, never delete (see above). (No lockfile: the
+        // winner vanished → re-elect.)
         if let Some(info) = read_lock(&lock) {
-            if let Some(att) = connect_hello(&info).await {
-                log_info!("attached to shared caby daemon (pid {})", info.pid);
-                return Lane::Proxy(att);
+            match connect_hello(&info).await {
+                Probe::Live(att) => {
+                    log_info!("attached to shared caby daemon (pid {})", info.pid);
+                    return Lane::Proxy(att);
+                }
+                Probe::Dead => {
+                    let _ = std::fs::remove_file(&lock);
+                }
+                Probe::Starting => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
             }
-            let _ = std::fs::remove_file(&lock);
         }
     }
 
@@ -348,6 +402,39 @@ pub async fn serve_session(stream: TcpStream, core: Arc<Shared>, token: &str) {
 #[derive(Default)]
 pub struct Replay {
     pending: BTreeMap<String, Vec<u8>>,
+    /// Arrival order of `pending` keys: replays run FIFO, not id-sorted.
+    order: Vec<String>,
+}
+
+impl Replay {
+    fn record(&mut self, key: String, frame: Vec<u8>) {
+        if self.pending.insert(key.clone(), frame).is_none() {
+            self.order.push(key);
+        }
+    }
+
+    fn ack(&mut self, key: &str) {
+        if self.pending.remove(key).is_some() {
+            self.order.retain(|k| k != key);
+        }
+    }
+
+    /// Unacked frames, oldest first. Cloned, not drained: a handover whose
+    /// new daemon also dies replays them again on the following bridge.
+    fn ordered(&self) -> Vec<Vec<u8>> {
+        self.order
+            .iter()
+            .filter_map(|k| self.pending.get(k))
+            .cloned()
+            .collect()
+    }
+
+    fn drain_ordered(&mut self) -> Vec<Vec<u8>> {
+        let out = self.ordered();
+        self.pending.clear();
+        self.order.clear();
+        out
+    }
 }
 
 fn id_key(id: &crate::core::jsonrpc::Id) -> String {
@@ -428,15 +515,9 @@ pub async fn bridge(
     let Attached { rd, wr } = att;
     let wr = Arc::new(tokio::sync::Mutex::new(wr));
 
-    // First: replay anything the previous daemon never answered.
+    // First: replay anything the previous daemon never answered (FIFO).
     {
-        let pending: Vec<Vec<u8>> = replay
-            .lock()
-            .expect("replay lock")
-            .pending
-            .values()
-            .cloned()
-            .collect();
+        let pending: Vec<Vec<u8>> = replay.lock().expect("replay lock").ordered();
         let mut w = wr.lock().await;
         for raw in pending {
             let mut framed = raw.clone();
@@ -507,8 +588,7 @@ pub async fn bridge(
                         replay
                             .lock()
                             .expect("replay lock")
-                            .pending
-                            .insert(id_key(&r.id), frame.clone());
+                            .record(id_key(&r.id), frame.clone());
                     }
                     let mut w = wr.lock().await;
                     let mut framed = frame.clone();
@@ -530,17 +610,15 @@ pub async fn bridge(
 /// after a failover: the old proxy loop is gone, so nothing else will replay
 /// them — feed them to the freshly hosted session instead.
 pub fn take_pending(replay: &Arc<StdMutex<Replay>>) -> Vec<Vec<u8>> {
-    std::mem::take(&mut replay.lock().expect("replay lock").pending)
-        .into_values()
-        .collect()
+    replay.lock().expect("replay lock").drain_ordered()
 }
 
 /// Remove acked ids from the replay set. Called with each daemon→client frame.
 /// (Split out so the socket task stays small; takes the frames it forwarded.)
 pub fn ack_frame(replay: &mut Replay, frame: &[u8]) {
     if let Ok(Message::Success(s)) = serde_json::from_slice::<Message>(frame) {
-        replay.pending.remove(&id_key(&s.id));
+        replay.ack(&id_key(&s.id));
     } else if let Ok(Message::RpcError(e)) = serde_json::from_slice::<Message>(frame) {
-        replay.pending.remove(&id_key(&e.id));
+        replay.ack(&id_key(&e.id));
     }
 }
