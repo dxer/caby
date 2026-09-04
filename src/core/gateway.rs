@@ -88,6 +88,8 @@ impl Gateway {
     }
 
     /// Send a server-initiated notification to the host (e.g. tools/list_changed).
+    /// Multi-session mode uses broadcast instead; kept for direct embeds/tests.
+    #[allow(dead_code)]
     pub async fn notify_host(&self, msg: Message) {
         let _ = self.tx.send(jsonrpc::encode(&msg)).await;
     }

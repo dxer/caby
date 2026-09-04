@@ -186,6 +186,15 @@ Skills (3 active)
 └── ~/.config/caby/skills/general_helper.md (authorized: 0 tools, fallback)
 ```
 
+### Shared daemon (multi-agent hosts)
+
+Every `caby serve` is a launcher: the first one hosts a shared daemon (spawning
+the downstream set exactly once); later ones attach as thin proxies over
+loopback TCP. If the host exits, the next client transparently takes over and
+replays unanswered requests — no orphans, no `stop` command. Daemons are
+isolated per config file (`<config>.daemon.lock`). Set `CABY_NO_DAEMON=1` to
+force classic single-process mode.
+
 ## Configuration
 
 Location: **`~/.config/caby/config.json`** (override with `--config` or `$CABY_CONFIG`).

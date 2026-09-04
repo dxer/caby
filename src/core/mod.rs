@@ -1,3 +1,4 @@
+pub mod daemon;
 pub mod gateway;
 pub mod jsonrpc;
 pub mod matcher;

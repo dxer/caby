@@ -417,6 +417,59 @@ fn dynamic_mcp_servers_attach_and_detach_without_restart() {
     );
 }
 
+fn daemon_pid(env: &TestEnv) -> u64 {
+    let raw = std::fs::read(env.daemon_lock()).expect("daemon lockfile must exist");
+    let v: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    v.pointer("/pid").and_then(|p| p.as_u64()).unwrap()
+}
+
+#[test]
+fn shared_daemon_serves_two_clients_and_survives_first_host_exit() {
+    let mut env = TestEnv::new();
+    env.write_config(&[("github", "github")]);
+    env.write_skill("git_review.md", GIT_REVIEW_SKILL);
+    let has_actions =
+        |r: &serde_json::Value| parse_result(r).pointer("/skills/0/actions/0").is_some();
+
+    // first client hosts the daemon (spawns the downstream set once)
+    let mut c1 = GatewayClient::spawn_shared(&env);
+    c1.initialize();
+    c1.discover_until("review pull request", has_actions, Duration::from_secs(20));
+    let pid1 = daemon_pid(&env);
+
+    // second client attaches to the same daemon — no second downstream set
+    let mut c2 = GatewayClient::spawn_shared(&env);
+    c2.initialize();
+    c2.discover_until("review pull request", has_actions, Duration::from_secs(20));
+    assert_eq!(
+        daemon_pid(&env),
+        pid1,
+        "second client must attach to the existing daemon, not host a new one"
+    );
+
+    // kill the first host (the daemon dies with it); the second client must
+    // recover transparently via re-election, with no lost calls
+    drop(c1);
+    c2.discover_until("review pull request", has_actions, Duration::from_secs(20));
+    assert_ne!(
+        daemon_pid(&env),
+        pid1,
+        "a new daemon must have been elected after the first host exited"
+    );
+    let call = c2.tools_call(
+        "call_action",
+        serde_json::json!({
+            "skill": "PR 代码审查与质量检查",
+            "action": "github:get_pull_request",
+            "parameters": {"pull_number": 9, "repo": "acme/widgets"}
+        }),
+    );
+    assert!(
+        !is_error(&call),
+        "call via re-elected daemon failed: {call}"
+    );
+}
+
 #[test]
 fn downstream_failure_surfaces_cleanly() {
     let mut env = TestEnv::new();

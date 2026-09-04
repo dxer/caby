@@ -100,6 +100,11 @@ impl TestEnv {
     pub fn xdg_config_home(&self) -> PathBuf {
         self.root.join("xdg")
     }
+
+    /// Lockfile the shared daemon writes next to this env's config file.
+    pub fn daemon_lock(&self) -> PathBuf {
+        self.config.with_extension("daemon.lock")
+    }
 }
 
 /// Host-side MCP client driving the gateway over stdio.
@@ -116,7 +121,17 @@ impl GatewayClient {
         Self::spawn_with(env, &[])
     }
 
+    /// Spawn without `CABY_NO_DAEMON`: participates in shared-daemon mode.
+    /// Only the shared-mode test uses this; everything else stays isolated.
+    pub fn spawn_shared(env: &TestEnv) -> GatewayClient {
+        Self::spawn_inner(env, &[], false)
+    }
+
     pub fn spawn_with(env: &TestEnv, extra_args: &[&str]) -> GatewayClient {
+        Self::spawn_inner(env, extra_args, true)
+    }
+
+    fn spawn_inner(env: &TestEnv, extra_args: &[&str], isolated: bool) -> GatewayClient {
         let mut cmd = Command::new(caby_bin());
         cmd.arg("serve")
             .arg("--config")
@@ -129,6 +144,10 @@ impl GatewayClient {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if isolated {
+            // Existing tests stay hermetic: one process per client, no sharing.
+            cmd.env("CABY_NO_DAEMON", "1");
+        }
         let mut child = cmd.spawn().expect("spawn caby serve");
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
