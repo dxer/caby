@@ -29,24 +29,33 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             setup-cross: true
+            test: true
           # Linux aarch64 — fully static (musl)
+          # NOTE: tests are skipped here — ubuntu-latest is x86_64, so
+          # `cargo test` would just re-run the linux-x86_64 host suite.
           - name: linux-aarch64
             os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             setup-cross: true
+            test: false
           # Windows x86_64 (MSVC)
           - name: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            test: true
           # macOS Intel — the macos-13 Intel runner has been retired; cross-compile
           # x86_64-apple-darwin from the arm64 runner (clang targets both arches)
+          # NOTE: tests are skipped here — macos-14 is arm64, so
+          # `cargo test` would just re-run the macos-aarch64 host suite.
           - name: macos-x86_64
             os: macos-14
             target: x86_64-apple-darwin
+            test: false
           # macOS Apple Silicon
           - name: macos-aarch64
             os: macos-14
             target: aarch64-apple-darwin
+            test: true
 
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +76,10 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # Cross-only jobs skip this: they run on a different host arch, so
+      # `cargo test` would merely duplicate another job's host suite.
       - name: tests
+        if: matrix.test
         run: cargo test --release
 
       - name: build
