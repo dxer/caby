@@ -14,8 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 
 use crate::core::matcher::{Doc, Matcher};
 use crate::core::yaml_fm::{split_front_matter, SkillMeta};
@@ -50,7 +49,7 @@ pub struct SkillStore {
     by_name: HashMap<String, usize>,
     matcher: Matcher,
     revision: AtomicU64,
-    _watcher: Option<RecommendedWatcher>,
+    _watcher: Option<Box<dyn Watcher + Send + Sync>>,
 }
 
 impl SkillStore {
@@ -176,29 +175,24 @@ impl SkillStore {
         self.start_watchers_on(dirty, project_skills_dir(), global_skills_dir())
     }
 
+    /// Build the platform skill watcher.
+    ///
+    /// macOS's FSEvents delivers events with scheduler-dependent latency
+    /// (flaky on CI: a skill write can take hundreds of ms to surface), so on
+    /// macOS we poll the directories every 30 ms instead — deterministic
+    /// ≤30 ms detection, one stat per dir per tick. Other platforms keep
+    /// event-driven watchers (inotify / kqueue / ReadDirectoryChangesW).
+    /// Both branches are type-checked on every platform (`cfg!` is a runtime
+    /// bool), so a normal `cargo check` catches both.
+    // ponytail: macOS polls at a fixed 30 ms cadence; revisit only if the
+    // per-tick stat cost ever shows up (it won't: ≤2 flat dirs).
     fn start_watchers_on(
         &mut self,
         dirty: Arc<std::sync::atomic::AtomicBool>,
         project_dir: PathBuf,
         global_dir: PathBuf,
     ) -> anyhow::Result<()> {
-        let mut watcher =
-            notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
-                Ok(ev) => {
-                    let relevant = matches!(
-                        ev.kind,
-                        notify::EventKind::Create(_)
-                            | notify::EventKind::Modify(_)
-                            | notify::EventKind::Remove(_)
-                    );
-                    if relevant {
-                        dirty.store(true, Ordering::Release);
-                    }
-                }
-                Err(e) => log_warn!("skills watcher event error: {e}"),
-            })
-            .context("failed to create skill watcher")?;
-
+        let mut watcher = make_watcher(dirty)?;
         for dir in [project_dir, global_dir] {
             if dir.is_dir() || dir.parent().is_some_and(|p| p.is_dir()) {
                 let target = if dir.is_dir() {
@@ -215,6 +209,43 @@ impl SkillStore {
 
         self._watcher = Some(watcher);
         Ok(())
+    }
+}
+
+/// Build the platform skill watcher.
+///
+/// macOS's FSEvents delivers events with scheduler-dependent latency (flaky
+/// on CI: a skill write can take hundreds of ms to surface), so on macOS we
+/// poll the directories every 30 ms instead — deterministic ≤30 ms detection
+/// at the cost of one stat per dir per tick. Other platforms keep
+/// event-driven watchers (inotify / kqueue / ReadDirectoryChangesW).
+/// `cfg!` is a runtime bool, so both branches are type-checked on every
+/// platform — a regular `cargo check` covers both.
+// ponytail: macOS polls at a fixed 30 ms cadence; revisit only if the
+// per-tick stat cost ever shows up (it won't: ≤2 flat dirs).
+fn make_watcher(
+    dirty: Arc<std::sync::atomic::AtomicBool>,
+) -> anyhow::Result<Box<dyn Watcher + Send + Sync>> {
+    let handler = move |res: notify::Result<notify::Event>| match res {
+        Ok(ev) => {
+            let relevant = matches!(
+                ev.kind,
+                notify::EventKind::Create(_)
+                    | notify::EventKind::Modify(_)
+                    | notify::EventKind::Remove(_)
+            );
+            if relevant {
+                dirty.store(true, Ordering::Release);
+            }
+        }
+        Err(e) => log_warn!("skills watcher event error: {e}"),
+    };
+    if cfg!(target_os = "macos") {
+        let config =
+            notify::Config::default().with_poll_interval(std::time::Duration::from_millis(30));
+        Ok(Box::new(notify::PollWatcher::new(handler, config)?))
+    } else {
+        Ok(Box::new(notify::recommended_watcher(handler)?))
     }
 }
 
