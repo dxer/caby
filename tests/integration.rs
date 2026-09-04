@@ -323,7 +323,7 @@ fn hot_reload_picks_up_new_skill_under_100ms() {
             Instant::now() < deadline,
             "hot reload never picked up the new skill"
         );
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(10));
     }
     // modification is also hot-reloaded
     env.write_skill(
@@ -345,7 +345,7 @@ fn hot_reload_picks_up_new_skill_under_100ms() {
             break;
         }
         assert!(Instant::now() < deadline, "modification not hot-reloaded");
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(10));
     }
 
     // deletion is hot-reloaded too
@@ -363,7 +363,7 @@ fn hot_reload_picks_up_new_skill_under_100ms() {
             break;
         }
         assert!(Instant::now() < deadline, "deletion not hot-reloaded");
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 

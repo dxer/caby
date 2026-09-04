@@ -184,7 +184,7 @@ impl SkillStore {
     /// event-driven watchers (inotify / kqueue / ReadDirectoryChangesW).
     /// Both branches are type-checked on every platform (`cfg!` is a runtime
     /// bool), so a normal `cargo check` catches both.
-    // ponytail: macOS polls at a fixed 30 ms cadence; revisit only if the
+    // ponytail: macOS polls at a fixed 20 ms cadence; revisit only if the
     // per-tick stat cost ever shows up (it won't: ≤2 flat dirs).
     fn start_watchers_on(
         &mut self,
@@ -221,7 +221,7 @@ impl SkillStore {
 /// event-driven watchers (inotify / kqueue / ReadDirectoryChangesW).
 /// `cfg!` is a runtime bool, so both branches are type-checked on every
 /// platform — a regular `cargo check` covers both.
-// ponytail: macOS polls at a fixed 30 ms cadence; revisit only if the
+// ponytail: macOS polls at a fixed 20 ms cadence; revisit only if the
 // per-tick stat cost ever shows up (it won't: ≤2 flat dirs).
 fn make_watcher(
     dirty: Arc<std::sync::atomic::AtomicBool>,
@@ -241,8 +241,12 @@ fn make_watcher(
         Err(e) => log_warn!("skills watcher event error: {e}"),
     };
     if cfg!(target_os = "macos") {
-        let config =
-            notify::Config::default().with_poll_interval(std::time::Duration::from_millis(30));
+        // Compare file contents: PollWatcher only tracks second-resolution
+        // mtime, so a modify in the same second as a create would otherwise
+        // be missed entirely.
+        let config = notify::Config::default()
+            .with_poll_interval(std::time::Duration::from_millis(20))
+            .with_compare_contents(true);
         Ok(Box::new(notify::PollWatcher::new(handler, config)?))
     } else {
         Ok(Box::new(notify::recommended_watcher(handler)?))
