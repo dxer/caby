@@ -94,7 +94,7 @@ jobs:
           cp "$SRC" "$DST"
           ls -lh "$DST"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: caby-${{ matrix.name }}
           path: ${{ runner.temp }}/caby-${{ matrix.name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
